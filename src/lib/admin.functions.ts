@@ -193,7 +193,7 @@ export const listRegisteredStudents = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     try {
       const { db } = await assertAdminRole(context, ["admin", "super_admin"]);
-      const { data: profiles, error } = await db
+      const { data: profiles, error } = await (db as any)
         .from("profiles")
         .select("id, display_name, email, phone, standard, stream, target_exams, created_at, updated_at")
         .order("created_at", { ascending: false });

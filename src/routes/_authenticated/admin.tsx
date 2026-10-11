@@ -938,12 +938,13 @@ function Importer() {
 
       while ((match = qBlockRegex.exec(cleaned)) !== null && count < 80) {
         count++;
-        const blockContent = match[3].trim();
+        const blockContent = (match[3] || "").trim();
         if (blockContent.length < 8) continue;
 
         // Find first option
         const firstOptIndex = blockContent.search(/(?:[\(\[]?[a-dA-D1-4][\)\]\.]\s*)/);
-        let qBody = firstOptIndex > 0 ? blockContent.substring(0, firstOptIndex).trim() : blockContent.split("\n")[0];
+        const splitFirst = blockContent.split("\n")[0] || "";
+        const qBody = firstOptIndex > 0 ? blockContent.substring(0, firstOptIndex).trim() : splitFirst;
 
         // Extract options: (a), (b), (c), (d)
         const optRegex = /(?:[\(\[]?([a-dA-D1-4])[\)\]\.]\s*)([\s\S]*?)(?=(?:[\(\[]?[a-dA-D1-4][\)\]\.]\s*)|(?:Ans(?:wer)?[:\s])|(?:Explanation[:\s])|$)/gi;
@@ -951,9 +952,9 @@ function Importer() {
         let optMatch;
 
         while ((optMatch = optRegex.exec(blockContent)) !== null && options.length < 4) {
-          const rawId = optMatch[1].toLowerCase();
-          const optId = rawId === "1" ? "a" : rawId === "2" ? "b" : rawId === "3" ? "c" : rawId === "4" ? "d" : rawId;
-          const optText = optMatch[2].replace(/\n/g, " ").trim();
+          const rawId = (optMatch[1] || "").toLowerCase();
+          const optId = rawId === "1" ? "a" : rawId === "2" ? "b" : rawId === "3" ? "c" : rawId === "4" ? "d" : rawId || "a";
+          const optText = (optMatch[2] || "").replace(/\n/g, " ").trim();
           if (optText) {
             options.push({ id: optId, text: optText });
           }
@@ -961,14 +962,15 @@ function Importer() {
 
         // Fill up to 4 options if some were missed
         while (options.length < 4) {
-          const id = ["a", "b", "c", "d"][options.length];
+          const fallbackLetters = ["a", "b", "c", "d"];
+          const id = fallbackLetters[options.length] || "a";
           options.push({ id, text: `Option ${id.toUpperCase()}` });
         }
 
         // Detect correct answer key: Ans: (b), Answer: C, Key: A
         let correctKey = "a";
         const ansMatch = blockContent.match(/(?:Ans(?:wer)?|Key|Option)[:\s]*\(?([a-dA-D1-4])\)?/i);
-        if (ansMatch) {
+        if (ansMatch && ansMatch[1]) {
           const rawKey = ansMatch[1].toLowerCase();
           correctKey = rawKey === "1" ? "a" : rawKey === "2" ? "b" : rawKey === "3" ? "c" : rawKey === "4" ? "d" : rawKey;
         }
@@ -976,7 +978,7 @@ function Importer() {
         // Detect explanation
         let explanation = "";
         const explMatch = blockContent.match(/(?:Explanation|Solution|Sol)[:\s]*([\s\S]*?)$/i);
-        if (explMatch) {
+        if (explMatch && explMatch[1]) {
           explanation = explMatch[1].trim();
         }
 
@@ -1024,7 +1026,9 @@ function Importer() {
       if (questions.length === 0) {
         const paras = cleaned.split(/\n\s*\n/).filter((p) => p.trim().length > 25);
         for (let i = 0; i < Math.min(paras.length, 12); i++) {
-          const p = paras[i].trim();
+          const p = paras[i];
+          if (!p) continue;
+          const trimmedP = p.trim();
           questions.push({
             exam_ids: selectedExams.length > 0 ? selectedExams : ["kcet", "scholarship"],
             subject: defaultSubject !== "Auto-Detect" ? defaultSubject : "Physics",
@@ -1032,7 +1036,7 @@ function Importer() {
             topic: "",
             difficulty: defaultDifficulty,
             qtype: "single",
-            body: p,
+            body: trimmedP,
             options: [
               { id: "a", text: "Option A" },
               { id: "b", text: "Option B" },
@@ -1055,6 +1059,22 @@ function Importer() {
     } finally {
       setAnalyzing(false);
     }
+  }
+
+  function updateQuestion(index: number, patch: Partial<QuestionInput>) {
+    setAnalyzedQuestions((prev) =>
+      prev.map((item, i) => (i === index ? ({ ...item, ...patch } as QuestionInput) : item))
+    );
+  }
+
+  function updateOptionText(qIndex: number, optId: string, newText: string) {
+    setAnalyzedQuestions((prev) =>
+      prev.map((item, i) => {
+        if (i !== qIndex) return item;
+        const opts = (item.options || []).map((o) => (o.id === optId ? { ...o, text: newText } : o));
+        return { ...item, options: opts };
+      })
+    );
   }
 
   // Handle PDF / Text File Upload
@@ -1294,11 +1314,7 @@ function Importer() {
                     <div className="flex items-center gap-2">
                       <select
                         value={q.subject}
-                        onChange={(e) => {
-                          const updated = [...analyzedQuestions];
-                          updated[idx] = { ...updated[idx], subject: e.target.value };
-                          setAnalyzedQuestions(updated);
-                        }}
+                        onChange={(e) => updateQuestion(idx, { subject: e.target.value })}
                         className={`${inp} text-xs py-1 h-7`}
                       >
                         {SUBJECTS.map((s) => (
@@ -1307,11 +1323,7 @@ function Importer() {
                       </select>
                       <select
                         value={q.difficulty}
-                        onChange={(e) => {
-                          const updated = [...analyzedQuestions];
-                          updated[idx] = { ...updated[idx], difficulty: e.target.value as never };
-                          setAnalyzedQuestions(updated);
-                        }}
+                        onChange={(e) => updateQuestion(idx, { difficulty: e.target.value as any })}
                         className={`${inp} text-xs py-1 h-7 capitalize`}
                       >
                         {LEVELS.map((l) => (
@@ -1322,7 +1334,7 @@ function Importer() {
                         onClick={() => {
                           setAnalyzedQuestions(analyzedQuestions.filter((_, i) => i !== idx));
                         }}
-                        className="text-destructive hover:bg-destructive/10 p-1.5 rounded-lg"
+                        className="text-destructive hover:bg-destructive/10 p-1.5 rounded-lg cursor-pointer"
                         title="Remove question"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1336,11 +1348,7 @@ function Importer() {
                     <textarea
                       rows={2}
                       value={q.body}
-                      onChange={(e) => {
-                        const updated = [...analyzedQuestions];
-                        updated[idx] = { ...updated[idx], body: e.target.value };
-                        setAnalyzedQuestions(updated);
-                      }}
+                      onChange={(e) => updateQuestion(idx, { body: e.target.value })}
                       className="w-full rounded-lg border bg-background p-2 text-xs font-medium outline-none focus:ring-1 focus:ring-primary"
                     />
                   </div>
@@ -1357,11 +1365,7 @@ function Importer() {
                           <div key={opt.id} className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => {
-                                const updated = [...analyzedQuestions];
-                                updated[idx] = { ...updated[idx], correct: [opt.id] };
-                                setAnalyzedQuestions(updated);
-                              }}
+                              onClick={() => updateQuestion(idx, { correct: [opt.id] })}
                               className={`size-7 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center uppercase shrink-0 ${
                                 isCorrect
                                   ? "bg-success text-white shadow-xs scale-105"
@@ -1373,14 +1377,7 @@ function Importer() {
                             </button>
                             <input
                               value={opt.text}
-                              onChange={(e) => {
-                                const updated = [...analyzedQuestions];
-                                const opts = [...(updated[idx].options || [])];
-                                const optIdx = opts.findIndex((o) => o.id === opt.id);
-                                if (optIdx !== -1) opts[optIdx] = { ...opts[optIdx], text: e.target.value };
-                                updated[idx] = { ...updated[idx], options: opts };
-                                setAnalyzedQuestions(updated);
-                              }}
+                              onChange={(e) => updateOptionText(idx, opt.id, e.target.value)}
                               className="flex-1 rounded-lg border bg-background px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
                             />
                           </div>
@@ -1394,11 +1391,7 @@ function Importer() {
                     <label className="block text-[11px] font-semibold text-muted-foreground mb-1">NCERT Explanation / Solution</label>
                     <input
                       value={q.explanation || ""}
-                      onChange={(e) => {
-                        const updated = [...analyzedQuestions];
-                        updated[idx] = { ...updated[idx], explanation: e.target.value };
-                        setAnalyzedQuestions(updated);
-                      }}
+                      onChange={(e) => updateQuestion(idx, { explanation: e.target.value })}
                       placeholder="Step-by-step solution"
                       className="w-full rounded-lg border bg-background px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
                     />
