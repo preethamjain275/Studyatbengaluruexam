@@ -11,6 +11,8 @@ import { btnGhost, btnPrimary, Card } from "@/components/site/ui";
 
 import { computeResult } from "@/lib/engine/scoring";
 import { PRACTICE_MARKING } from "@/lib/engine/patterns";
+import { AttemptProgression } from "@/components/site/AttemptProgression";
+import { getMasteryThreshold } from "@/lib/engine/state";
 
 const resultQuery = (id: string) =>
   queryOptions({
@@ -57,11 +59,13 @@ function ResultPage() {
   const preset = attempt?.presetId ? getPreset(attempt.presetId) : undefined;
   const practice = attempt.mode === "practice";
   const level = attempt.level as Level;
-  const passed = practice && (attempt.percent ?? 0) >= MASTERY_THRESHOLD;
+  const targetThreshold = getMasteryThreshold();
+  const passed = practice && (attempt.percent ?? 0) >= targetThreshold;
   const isEasyPass = (attempt.percent ?? 0) >= 60;
   const nextLevel = LEVELS[LEVELS.indexOf(level) + 1];
   const spent = attempt.submittedAt ? new Date(attempt.submittedAt).getTime() - new Date(attempt.startedAt).getTime() : 0;
   const needRevision = questions.filter((q) => outcomes[q.id]?.outcome !== "correct");
+  const gap = targetThreshold - (attempt.percent ?? 0);
 
   // Distinct NCERT chapters needing revision
   const weakChaptersList = Array.from(new Set(needRevision.map((q) => q.chapter || "General Revision")));
@@ -102,10 +106,14 @@ function ResultPage() {
           <p className="font-semibold text-base mb-1">
             {isEasyPass ? "Great Performance! You have cleared this test." : "Still Need to Improve — Keep Going!"}
           </p>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground leading-relaxed">
             {isEasyPass
-              ? (nextLevel ? `You scored ${attempt.percent}%. You are ready to move on to ${LEVEL_LABEL[nextLevel]}.` : "Congratulations on demonstrating strong mastery of these concepts!")
-              : `You scored ${attempt.percent}%. Don't worry — test practice is the best way to grow! Review the NCERT lessons and highlighted formulas below, then retry.`
+              ? (passed && nextLevel
+                  ? `You scored ${attempt.percent}%, clearing the ${targetThreshold}% unlock target! You can now advance to ${LEVEL_LABEL[nextLevel]}.`
+                  : `You scored ${attempt.percent}%. Congratulations on demonstrating strong mastery of these concepts!`)
+              : (gap > 0 && gap <= 10
+                  ? `You scored ${attempt.percent}%. You can do it! Just ${gap}% to go to unlock ${nextLevel ? LEVEL_LABEL[nextLevel] : "the next level"}! Review the formulas below and retry.`
+                  : `You scored ${attempt.percent}%. Don't worry — test practice is the best way to grow! Review the NCERT lessons and highlighted formulas below, then retry.`)
             }
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -116,6 +124,22 @@ function ResultPage() {
           {err && <p className="mt-2 text-destructive">{err}</p>}
         </div>
       </div>
+
+      {/* Oval Attempt Progression Curve & Motivational Stepper */}
+      <AttemptProgression
+        paperName={practice ? `${exam?.short || "Exam"} · ${attempt.track}` : preset?.name}
+        level={level}
+        targetThreshold={targetThreshold}
+        attempts={[
+          {
+            id: attempt.id,
+            level: level,
+            percent: attempt.percent ?? 0,
+            score: attempt.score ?? 0,
+            maxScore: attempt.maxScore ?? 10,
+          }
+        ]}
+      />
 
       {/* NCERT Formula & Chapter Preparation Guide (Always available, especially when needing improvement) */}
       <Card title={`NCERT Preparation & Formula Guide (${weakChaptersList.length} chapter${weakChaptersList.length === 1 ? "" : "s"} to focus on)`}>

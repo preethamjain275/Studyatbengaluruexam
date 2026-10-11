@@ -16,6 +16,7 @@ import { Header } from "@/components/site/Header";
 import { TutorWidget } from "@/components/site/Tutor";
 import { Logo } from "@/components/site/Logo";
 import { themeScript } from "@/components/site/theme";
+import { AnnouncementPopup } from "@/components/site/AnnouncementPopup";
 
 function NotFoundComponent() {
   return (
@@ -99,6 +100,7 @@ function RootComponent() {
           <Outlet />
         </main>
         <TutorWidget />
+        <AnnouncementPopup />
         <footer className="border-t pb-28 xl:pb-0">
           <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 text-sm text-muted-foreground md:flex-row">
             <Logo />

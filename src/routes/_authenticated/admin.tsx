@@ -19,6 +19,9 @@ import {
   Eye,
   Copy,
   Plus,
+  Megaphone,
+  Target,
+  Bell,
 } from "lucide-react";
 import { EXAMS } from "@/lib/exams";
 import {
@@ -64,7 +67,7 @@ function AdminPage() {
   const status = useServerFn(getAdminStatus);
   const claim = useServerFn(claimAdmin);
   const [s, setS] = useState<{ isAdmin: boolean; adminExists: boolean } | null>(null);
-  const [tab, setTab] = useState<"bank" | "exams" | "roles" | "analytics" | "import" | "predict">("bank");
+  const [tab, setTab] = useState<"bank" | "exams" | "roles" | "analytics" | "import" | "predict" | "settings" | "announcements">("bank");
 
   useEffect(() => {
     const isLocalAdmin = typeof window !== "undefined" && localStorage.getItem("study_admin_active") === "true";
@@ -133,6 +136,8 @@ function AdminPage() {
             ["analytics", "Platform Analytics"],
             ["import", "Import (Excel/CSV/PDF)"],
             ["predict", "AI Predictions"],
+            ["settings", "🎯 Mastery Targets (80%)"],
+            ["announcements", "📢 Website Announcements"],
           ] as const
         ).map(([k, l]) => (
           <button
@@ -152,6 +157,8 @@ function AdminPage() {
         {tab === "analytics" && <AnalyticsView />}
         {tab === "import" && <Importer />}
         {tab === "predict" && <Predictor />}
+        {tab === "settings" && <MasterySettingsView />}
+        {tab === "announcements" && <AnnouncementManagerView />}
       </div>
     </div>
   );
@@ -769,3 +776,289 @@ function Predictor() {
     </div>
   );
 }
+
+/* 7. MASTERY TARGET SETTINGS (EDITABLE 80% THRESHOLD) */
+function MasterySettingsView() {
+  const [threshold, setThreshold] = useState(80);
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("study_mastery_threshold");
+      if (stored) {
+        const val = parseInt(stored, 10);
+        if (!isNaN(val)) setThreshold(val);
+      }
+    }
+  }, []);
+
+  async function handleSave() {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("study_mastery_threshold", String(threshold));
+    }
+    // Also sync to Supabase app_settings
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      await (supabase as any).from("app_settings").upsert({
+        key: "mastery_threshold",
+        value: { threshold, updated_by: "admin" },
+        updated_at: new Date().toISOString(),
+      });
+    } catch {}
+
+    setSavedSuccess(true);
+    toast.success(`Mastery unlock target successfully set to ${threshold}%!`);
+    setTimeout(() => setSavedSuccess(false), 3000);
+  }
+
+  return (
+    <div className="surface p-6 sm:p-7 rounded-2xl shadow-xs space-y-6">
+      <div className="flex items-center gap-3 border-b pb-4">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Target className="h-6 w-6" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-foreground">
+            Mastery Unlock Targets & Progression Rules
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Configure the required score percentage to advance between difficulty levels (Easy → Medium → Hard → Expert).
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs text-foreground space-y-2">
+        <p className="font-bold text-primary flex items-center gap-1.5">
+          <Sliders className="h-4 w-4" /> Admin Policy Guide:
+        </p>
+        <p className="text-muted-foreground leading-relaxed">
+          When you set the target to <b>{threshold}%</b>, students who achieve <b>{threshold}% or higher</b> on Easy practice sets will automatically unlock Medium practice sets. Similarly, scoring {threshold}% on Medium unlocks Hard questions.
+        </p>
+      </div>
+
+      <div className="max-w-md space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1">
+            Unlock Target Percentage (Current: <span className="text-primary font-bold">{threshold}%</span>)
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={50}
+              max={100}
+              value={threshold}
+              onChange={(e) => setThreshold(Math.max(50, Math.min(100, Number(e.target.value))))}
+              className={`${inp} w-32 font-bold text-base text-center`}
+            />
+            <span className="text-sm font-semibold">% Score Required to Pass</span>
+          </div>
+        </div>
+
+        {/* Quick presets */}
+        <div>
+          <label className="block text-xs text-muted-foreground mb-2">Quick Presets:</label>
+          <div className="flex flex-wrap gap-2">
+            {[70, 75, 80, 85, 90].map((val) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setThreshold(val)}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                  threshold === val
+                    ? "border-primary bg-primary text-primary-foreground shadow-xs font-bold"
+                    : "hover:bg-muted text-muted-foreground"
+                }`}
+              >
+                {val}% {val === 80 ? "(Recommended)" : ""}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <button
+            onClick={handleSave}
+            className={`${btn} bg-primary text-primary-foreground px-6 py-2.5 font-bold shadow-md`}
+          >
+            {savedSuccess ? "Saved Successfully! ✓" : "Save & Update Unlock Target"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* 8. ANNOUNCEMENTS & POPUP MANAGER */
+function AnnouncementManagerView() {
+  const [title, setTitle] = useState("🎯 KCET & NEET UG 2026 Practice Series is Live!");
+  const [message, setMessage] = useState(
+    "Full NCERT-aligned question banks, instant step-by-step solutions, formula guides, and timed mock tests are now available for all students. Choose your track in Practice to begin!"
+  );
+  const [link, setLink] = useState("/practice");
+  const [badge, setBadge] = useState("Exam Alert 📢");
+  const [active, setActive] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("study_active_announcement");
+        if (raw) {
+          const item = JSON.parse(raw);
+          setTitle(item.title || "");
+          setMessage(item.message || "");
+          setLink(item.link || "");
+          setBadge(item.badge || "Announcement 📢");
+          setActive(item.active ?? true);
+        }
+      } catch {}
+    }
+  }, []);
+
+  async function handlePublish() {
+    const item = {
+      id: "announcement-" + Date.now(),
+      title,
+      message,
+      link,
+      badge,
+      active,
+      created_at: new Date().toISOString(),
+    };
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("study_active_announcement", JSON.stringify(item));
+      // Clear any session dismissals so test can be previewed
+      sessionStorage.removeItem(`dismissed_announcement_${item.id}`);
+    }
+
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      await (supabase as any).from("announcements").insert(item);
+    } catch {}
+
+    setSaved(true);
+    toast.success("Announcement updated and live pop-up activated!");
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="surface p-6 sm:p-7 rounded-2xl shadow-xs space-y-6">
+      <div className="flex items-center gap-3 border-b pb-4">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Megaphone className="h-6 w-6" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-foreground">
+            Website Announcements & Student Pop-up Alerts
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Create high-visibility announcement pop-ups shown to students visiting the Study at Bangalore platform.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Announcement Form */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1">Announcement Headline / Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. 🎯 KCET 2026 Mock Test Series is Live!"
+              className={`${inp} w-full font-medium`}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1">Badge / Tagline</label>
+            <input
+              type="text"
+              value={badge}
+              onChange={(e) => setBadge(e.target.value)}
+              placeholder="e.g. Official Announcement 📢"
+              className={`${inp} w-full`}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1">Message Body</label>
+            <textarea
+              rows={4}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Write the detailed announcement message for students..."
+              className="w-full rounded-xl border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-primary leading-relaxed"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1">Action Link (Optional)</label>
+            <input
+              type="text"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="e.g. /practice or /scholarship-exam"
+              className={`${inp} w-full`}
+            />
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <input
+              type="checkbox"
+              id="activeToggle"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            />
+            <label htmlFor="activeToggle" className="text-sm font-semibold cursor-pointer">
+              Enable Pop-up (Active on website)
+            </label>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={handlePublish}
+              className={`${btn} bg-primary text-primary-foreground px-6 py-2.5 font-bold shadow-md`}
+            >
+              {saved ? "Announcement Published! ✓" : "Publish Announcement Pop-up"}
+            </button>
+          </div>
+        </div>
+
+        {/* Live Preview Card */}
+        <div className="space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Live Pop-up Preview (As Seen by Students):
+          </p>
+          <div className="surface p-6 rounded-2xl border-2 border-primary/30 shadow-xl space-y-3 bg-card relative">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-primary">
+                {badge || "Announcement 📢"}
+              </span>
+              {active && (
+                <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-bold ml-auto">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /> Active
+                </span>
+              )}
+            </div>
+            <h3 className="text-base font-bold text-foreground">{title || "Your Announcement Title"}</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+              {message || "Your message will appear here for all students."}
+            </p>
+            {link && (
+              <div className="pt-2 flex justify-end">
+                <span className="inline-flex items-center gap-1 rounded-xl bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground shadow-xs">
+                  Open Link →
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

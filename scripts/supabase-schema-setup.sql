@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   display_name text,
   standard text,
   stream text,
+  target_exams text[] DEFAULT ARRAY[]::text[],
   email text,
   phone text,
   avatar_url text,
@@ -16,12 +17,49 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS target_exams text[] DEFAULT ARRAY[]::text[];
+
 -- Enable RLS and create permissive policies for profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Public profiles access') THEN
     CREATE POLICY "Public profiles access" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- 1b. Create ANNOUNCEMENTS table for website popups
+CREATE TABLE IF NOT EXISTS public.announcements (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL,
+  message text NOT NULL,
+  link text,
+  badge text DEFAULT 'Announcement',
+  active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'announcements' AND policyname = 'Public announcements read') THEN
+    CREATE POLICY "Public announcements read" ON public.announcements FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'announcements' AND policyname = 'Public announcements write') THEN
+    CREATE POLICY "Public announcements write" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- 1c. Create APP_SETTINGS table for configurable mastery targets
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key text PRIMARY KEY,
+  value jsonb NOT NULL,
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'app_settings' AND policyname = 'Public app_settings access') THEN
+    CREATE POLICY "Public app_settings access" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 

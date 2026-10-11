@@ -53,18 +53,20 @@ describe("marking schemes", () => {
   });
 });
 
-describe("level unlocking (90% rule)", () => {
+describe("level unlocking (configurable mastery rule)", () => {
   const a = (level: "easy" | "medium" | "hard" | "expert", percent: number) => ({ level, percent, questionCount: 10, status: "submitted" });
   it("starts with only Easy unlocked", () => expect(masteryState([]).unlocked).toEqual(["easy"]));
-  it("89% does not unlock Medium", () => expect(isUnlocked([a("easy", 89)], "medium")).toBe(false));
-  it("90% unlocks Medium", () => expect(isUnlocked([a("easy", 90)], "medium")).toBe(true));
+  it("79% does not unlock Medium at 80% threshold", () => expect(isUnlocked([a("easy", 79)], "medium", 80)).toBe(false));
+  it("80% unlocks Medium at 80% threshold", () => expect(isUnlocked([a("easy", 80)], "medium", 80)).toBe(true));
+  it("89% does not unlock Medium at 90% threshold", () => expect(isUnlocked([a("easy", 89)], "medium", 90)).toBe(false));
+  it("90% unlocks Medium at 90% threshold", () => expect(isUnlocked([a("easy", 90)], "medium", 90)).toBe(true));
   it("cannot skip: Hard pass without Medium unlocks nothing extra", () => expect(isUnlocked([a("easy", 95), a("hard", 100)], "hard")).toBe(false));
   it("short or unfinished attempts are not eligible", () => {
     expect(isUnlocked([{ level: "easy", percent: 100, questionCount: 3, status: "submitted" }], "medium")).toBe(false);
     expect(isUnlocked([{ level: "easy", percent: 100, questionCount: 10, status: "in_progress" }], "medium")).toBe(false);
   });
-  it("90% in all four levels completes mastery", () => {
-    expect(masteryState([a("easy", 90), a("medium", 92), a("hard", 90), a("expert", 90)]).mastered).toBe(true);
+  it("reaching threshold in all four levels completes mastery", () => {
+    expect(masteryState([a("easy", 80), a("medium", 82), a("hard", 80), a("expert", 80)], 80).mastered).toBe(true);
   });
   it("retakes prefer unseen questions", () => {
     const pool = Array.from({ length: 15 }, (_, i) => `q${i}`);

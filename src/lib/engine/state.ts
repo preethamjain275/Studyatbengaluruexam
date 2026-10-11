@@ -37,12 +37,28 @@ export function formatClock(ms: number) {
 }
 
 // ---------- Mastery ----------
-export const MASTERY_THRESHOLD = 90;
+export const DEFAULT_MASTERY_THRESHOLD = 80;
+
+export function getMasteryThreshold(): number {
+  if (typeof window !== "undefined") {
+    try {
+      const saved = localStorage.getItem("study_mastery_threshold");
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= 50 && val <= 100) return val;
+      }
+    } catch {}
+  }
+  return DEFAULT_MASTERY_THRESHOLD;
+}
+
+export const MASTERY_THRESHOLD = 80;
 export type PracticeAttempt = { level: Level; percent: number | null; questionCount: number; status: string };
 
 export const isEligible = (a: PracticeAttempt) => a.status === "submitted" && a.questionCount >= PRACTICE_SET_SIZE && a.percent != null;
 
-export function masteryState(attempts: PracticeAttempt[]) {
+export function masteryState(attempts: PracticeAttempt[], customThreshold?: number) {
+  const threshold = customThreshold ?? getMasteryThreshold();
   const passed: Level[] = [];
   const best: Partial<Record<Level, number>> = {};
   for (const lvl of LEVELS) {
@@ -50,15 +66,15 @@ export function masteryState(attempts: PracticeAttempt[]) {
     if (elig.length) best[lvl] = Math.max(...elig.map((a) => a.percent as number));
   }
   for (const lvl of LEVELS) {
-    if ((best[lvl] ?? -1) >= MASTERY_THRESHOLD) passed.push(lvl);
+    if ((best[lvl] ?? -1) >= threshold) passed.push(lvl);
     else break;
   }
   const current: Level | null = LEVELS[passed.length] ?? null;
   const unlocked = LEVELS.slice(0, Math.min(LEVELS.length, passed.length + 1));
-  return { passed, unlocked, current, best, mastered: passed.length === LEVELS.length };
+  return { passed, unlocked, current, best, mastered: passed.length === LEVELS.length, threshold };
 }
 
-export const isUnlocked = (attempts: PracticeAttempt[], level: Level) => masteryState(attempts).unlocked.includes(level);
+export const isUnlocked = (attempts: PracticeAttempt[], level: Level, threshold?: number) => masteryState(attempts, threshold).unlocked.includes(level);
 
 /**
  * Retake selection: questions not seen in this level's recent attempts first, then the
