@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -27,6 +28,7 @@ import {
   Award,
   Check,
   Filter,
+  LogOut,
 } from "lucide-react";
 import { EXAMS } from "@/lib/exams";
 import {
@@ -70,8 +72,9 @@ const inp = "h-9 rounded-lg border border-border bg-background px-3 text-sm outl
 const btn = "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer";
 
 function AdminPage() {
+  const navigate = useNavigate();
+  const { logout: authLogout } = useAuth();
   const status = useServerFn(getAdminStatus);
-  const claim = useServerFn(claimAdmin);
   const [s, setS] = useState<{ isAdmin: boolean; adminExists: boolean } | null>(null);
   const [tab, setTab] = useState<"bank" | "students" | "exams" | "roles" | "analytics" | "import" | "predict" | "settings" | "announcements">("bank");
 
@@ -83,38 +86,34 @@ function AdminPage() {
     }
     status()
       .then((res) => {
-        setS(res);
+        if (!res.isAdmin && !isLocalAdmin) {
+          navigate({ to: "/admin-login", replace: true });
+        } else {
+          setS(res);
+        }
       })
-      .catch(() => setS({ isAdmin: isLocalAdmin, adminExists: true }));
-  }, [status]);
+      .catch(() => {
+        if (!isLocalAdmin) {
+          navigate({ to: "/admin-login", replace: true });
+        } else {
+          setS({ isAdmin: true, adminExists: true });
+        }
+      });
+  }, [status, navigate]);
 
   if (!s) return <div className="p-10 text-center"><Loader2 className="mx-auto animate-spin" /></div>;
 
   if (!s.isAdmin) {
+    if (typeof window !== "undefined") {
+      navigate({ to: "/admin-login", replace: true });
+    }
     return (
       <div className="mx-auto max-w-md p-10 text-center surface my-10 rounded-2xl shadow-xl">
-        <ShieldCheck className="mx-auto mb-3 size-12 text-primary" />
-        <h1 className="text-xl font-bold">Admin Portal</h1>
-        {!s.adminExists ? (
-          <>
-            <p className="mt-2 text-sm text-muted-foreground">
-              No administrator has been set up yet. The first account to claim this becomes the Super Admin.
-            </p>
-            <button
-              className={`${btn} mt-5 bg-primary text-primary-foreground w-full py-2.5`}
-              onClick={async () => {
-                const r = await claim();
-                if (r.ok) setS({ isAdmin: true, adminExists: true });
-              }}
-            >
-              Claim Super Admin Role
-            </button>
-          </>
-        ) : (
-          <p className="mt-2 text-sm text-destructive font-medium">
-            Unauthorized account. Contact a Super Admin to grant your user account an administrative role.
-          </p>
-        )}
+        <Loader2 className="mx-auto mb-3 size-8 animate-spin text-primary" />
+        <h1 className="text-lg font-bold">Admin Portal</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Redirecting to Admin Authentication…
+        </p>
       </div>
     );
   }
@@ -129,6 +128,25 @@ function AdminPage() {
           <p className="text-xs text-muted-foreground mt-0.5">
             Question bank, enrolled students directory, PDF question analysis, and platform analytics.
           </p>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /> Admin Active
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              authLogout();
+              if (typeof window !== "undefined") {
+                localStorage.removeItem("study_admin_active");
+              }
+              toast.info("Signed out of Admin Portal");
+              navigate({ to: "/admin-login", replace: true });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition cursor-pointer"
+          >
+            <LogOut className="h-3.5 w-3.5" /> Sign Out
+          </button>
         </div>
       </div>
 

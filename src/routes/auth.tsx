@@ -507,37 +507,23 @@ export function AuthPage() {
         </form>
 
         {/* Direct Admin Access Card */}
+        {/* Direct Admin Access Link */}
         {mode === "in" && (
           <div className="mt-4 p-3.5 rounded-xl bg-primary/5 border border-primary/20 text-center">
             <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-primary mb-1">
-              <ShieldCheck className="h-4 w-4" /> Admin Preetham Jain Portal
+              <ShieldCheck className="h-4 w-4" /> Platform Admin Portal
             </div>
-            <p className="text-[11px] text-muted-foreground mb-2">
-              Log in directly with admin email <span className="font-mono text-foreground font-semibold">preethamjainm6324@gmail.com</span>
+            <p className="text-[11px] text-muted-foreground mb-2.5">
+              Authorized administrator? Authenticate via the dedicated admin login portal.
             </p>
             <button
               type="button"
               onClick={() => {
-                setEmail(ADMIN_EMAIL);
-                setPassword(ADMIN_PASSWORD);
-                const adminSession = {
-                  id: "admin-preetham-6324",
-                  email: ADMIN_EMAIL,
-                  user_metadata: {
-                    full_name: "Preetham Jain",
-                    role: "super_admin",
-                  },
-                };
-                loginUser(adminSession, true);
-                toast.success("Welcome Admin Preetham Jain! Entering Admin Portal…");
-                sessionStorage.removeItem("auth-next");
-                setTimeout(() => {
-                  window.location.href = "/admin";
-                }, 100);
+                navigate({ to: "/admin-login" });
               }}
               className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-xs"
             >
-              Direct Admin 1-Click Login
+              <ShieldCheck className="h-3.5 w-3.5" /> Admin Authentication Login (/admin-login)
             </button>
           </div>
         )}

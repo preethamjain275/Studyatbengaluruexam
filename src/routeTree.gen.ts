@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AdminLoginRouteImport } from './routes/admin-login'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
@@ -23,7 +24,6 @@ import { Route as RevisionRouteImport } from './routes/revision'
 import { Route as ScholarshipExamRouteImport } from './routes/scholarship-exam'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
-import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as ApiTutorRouteImport } from './routes/api/tutor'
 import { Route as ExamsExamIdRouteImport } from './routes/exams.$examId'
 import { Route as StudentLoginRouteImport } from './routes/student/login'
@@ -39,6 +39,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLoginRoute = AdminLoginRouteImport.update({
+  id: '/admin-login',
+  path: '/admin-login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -101,11 +106,6 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AdminLoginRoute = AdminLoginRouteImport.update({
-  id: '/admin/login',
-  path: '/admin/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiTutorRoute = ApiTutorRouteImport.update({
   id: '/api/tutor',
   path: '/api/tutor',
@@ -148,6 +148,7 @@ const AuthenticatedTestAttemptIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin-login': typeof AdminLoginRoute
   '/auth': typeof AuthRoute
   '/bookmarks': typeof BookmarksRoute
   '/leaderboard': typeof LeaderboardRoute
@@ -160,7 +161,6 @@ export interface FileRoutesByFullPath {
   '/scholarship-exam': typeof ScholarshipExamRoute
   '/terms': typeof TermsRoute
   '/admin': typeof AuthenticatedAdminRoute
-  '/admin/login': typeof AdminLoginRoute
   '/api/tutor': typeof ApiTutorRoute
   '/exams/$examId': typeof ExamsExamIdRoute
   '/student/login': typeof StudentLoginRoute
@@ -171,6 +171,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin-login': typeof AdminLoginRoute
   '/auth': typeof AuthRoute
   '/bookmarks': typeof BookmarksRoute
   '/leaderboard': typeof LeaderboardRoute
@@ -183,7 +184,6 @@ export interface FileRoutesByTo {
   '/scholarship-exam': typeof ScholarshipExamRoute
   '/terms': typeof TermsRoute
   '/admin': typeof AuthenticatedAdminRoute
-  '/admin/login': typeof AdminLoginRoute
   '/api/tutor': typeof ApiTutorRoute
   '/exams/$examId': typeof ExamsExamIdRoute
   '/student/login': typeof StudentLoginRoute
@@ -196,6 +196,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/admin-login': typeof AdminLoginRoute
   '/auth': typeof AuthRoute
   '/bookmarks': typeof BookmarksRoute
   '/leaderboard': typeof LeaderboardRoute
@@ -208,7 +209,6 @@ export interface FileRoutesById {
   '/scholarship-exam': typeof ScholarshipExamRoute
   '/terms': typeof TermsRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
-  '/admin/login': typeof AdminLoginRoute
   '/api/tutor': typeof ApiTutorRoute
   '/exams/$examId': typeof ExamsExamIdRoute
   '/student/login': typeof StudentLoginRoute
@@ -221,6 +221,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin-login'
     | '/auth'
     | '/bookmarks'
     | '/leaderboard'
@@ -233,7 +234,6 @@ export interface FileRouteTypes {
     | '/scholarship-exam'
     | '/terms'
     | '/admin'
-    | '/admin/login'
     | '/api/tutor'
     | '/exams/$examId'
     | '/student/login'
@@ -244,6 +244,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin-login'
     | '/auth'
     | '/bookmarks'
     | '/leaderboard'
@@ -256,7 +257,6 @@ export interface FileRouteTypes {
     | '/scholarship-exam'
     | '/terms'
     | '/admin'
-    | '/admin/login'
     | '/api/tutor'
     | '/exams/$examId'
     | '/student/login'
@@ -268,6 +268,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/admin-login'
     | '/auth'
     | '/bookmarks'
     | '/leaderboard'
@@ -280,7 +281,6 @@ export interface FileRouteTypes {
     | '/scholarship-exam'
     | '/terms'
     | '/_authenticated/admin'
-    | '/admin/login'
     | '/api/tutor'
     | '/exams/$examId'
     | '/student/login'
@@ -293,6 +293,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AdminLoginRoute: typeof AdminLoginRoute
   AuthRoute: typeof AuthRoute
   BookmarksRoute: typeof BookmarksRoute
   LeaderboardRoute: typeof LeaderboardRoute
@@ -304,7 +305,6 @@ export interface RootRouteChildren {
   RevisionRoute: typeof RevisionRoute
   ScholarshipExamRoute: typeof ScholarshipExamRoute
   TermsRoute: typeof TermsRoute
-  AdminLoginRoute: typeof AdminLoginRoute
   ApiTutorRoute: typeof ApiTutorRoute
   ExamsExamIdRoute: typeof ExamsExamIdRoute
   StudentLoginRoute: typeof StudentLoginRoute
@@ -324,6 +324,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-login': {
+      id: '/admin-login'
+      path: '/admin-login'
+      fullPath: '/admin-login'
+      preLoaderRoute: typeof AdminLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -410,13 +417,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/admin/login': {
-      id: '/admin/login'
-      path: '/admin/login'
-      fullPath: '/admin/login'
-      preLoaderRoute: typeof AdminLoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/tutor': {
       id: '/api/tutor'
       path: '/api/tutor'
@@ -491,6 +491,7 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AdminLoginRoute: AdminLoginRoute,
   AuthRoute: AuthRoute,
   BookmarksRoute: BookmarksRoute,
   LeaderboardRoute: LeaderboardRoute,
@@ -502,7 +503,6 @@ const rootRouteChildren: RootRouteChildren = {
   RevisionRoute: RevisionRoute,
   ScholarshipExamRoute: ScholarshipExamRoute,
   TermsRoute: TermsRoute,
-  AdminLoginRoute: AdminLoginRoute,
   ApiTutorRoute: ApiTutorRoute,
   ExamsExamIdRoute: ExamsExamIdRoute,
   StudentLoginRoute: StudentLoginRoute,

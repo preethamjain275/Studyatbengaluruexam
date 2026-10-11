@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  Bell, Bookmark, GraduationCap, Home, LineChart, Menu, NotebookPen, RotateCcw, Search, Timer, Trophy, User, X,
+  Bell, Bookmark, GraduationCap, Home, LineChart, Menu, NotebookPen, RotateCcw, Search, Timer, Trophy, User, X, ShieldCheck,
 } from "lucide-react";
 import { ThemeToggle } from "./theme";
 import { EXAMS } from "@/lib/exams";
@@ -25,7 +25,7 @@ export function Header() {
   const [search, setSearch] = useState(false);
   const [notif, setNotif] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
 
   return (
     <>
@@ -56,6 +56,17 @@ export function Header() {
               )}
             </div>
             <ThemeToggle />
+            {isAdmin && (
+              <Link
+                to="/admin"
+                aria-label="Admin Portal"
+                title="Admin Portal"
+                className="flex h-9 items-center gap-1.5 px-2.5 rounded-lg bg-primary/10 text-primary border border-primary/20 text-xs font-semibold hover:bg-primary/20 transition-colors"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                <span className="hidden sm:inline">Admin</span>
+              </Link>
+            )}
             <Link to={user ? "/profile" : "/auth"} aria-label={user ? "Profile" : "Sign in"} className="flex h-9 w-9 items-center justify-center rounded-full bg-brand text-primary-foreground shadow-sm hover:opacity-90 transition-opacity">
               <User className="h-4 w-4" />
             </Link>
@@ -99,7 +110,16 @@ export function Header() {
                 <n.icon className="h-4 w-4" />{n.label}
               </Link>
             ))}
-            <div className="mt-4 border-t pt-4">
+            <div className="mt-4 border-t pt-4 space-y-2">
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  onClick={() => setDrawer(false)}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-primary bg-primary/10 hover:bg-primary/20"
+                >
+                  <ShieldCheck className="h-4 w-4" /> Admin Portal
+                </Link>
+              )}
               {user ? (
                 <button onClick={() => { logout(); setDrawer(false); window.location.href = "/"; }} className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium hover:bg-accent">Sign out ({(user.user_metadata as Record<string, any>)?.['full_name'] || user.email})</button>
               ) : (
