@@ -84,7 +84,8 @@ function TestPage() {
     const ev = events.current.splice(0);
     setSaveState("saving");
     try {
-      const r = await save({ data: { id: attemptId, answers, statuses: meta, events: ev } });
+      const cleanAns = Object.fromEntries(Object.entries(answers).filter(([k]) => !k.startsWith('_')));
+      const r = await save({ data: { id: attemptId, answers: cleanAns, statuses: meta, events: ev } });
       setSaveState("saved");
       if (r.status === "submitted") { submittedRef.current = true; navigate({ to: "/results/$attemptId", params: { attemptId } }); }
     } catch {
@@ -98,8 +99,9 @@ function TestPage() {
     if (submittedRef.current) return;
     submittedRef.current = true; setSubmitting(true);
     try {
-      await save({ data: { id: attemptId, answers, statuses: meta, events: events.current.splice(0) } }).catch(() => null);
-      await submit({ data: { id: attemptId } });
+      const cleanAns = Object.fromEntries(Object.entries(answers).filter(([k]) => !k.startsWith('_')));
+      await save({ data: { id: attemptId, answers: cleanAns, statuses: meta, events: events.current.splice(0) } }).catch(() => null);
+      await submit({ data: { id: attemptId, answers: cleanAns, statuses: meta } });
       localStorage.removeItem(backKey);
       navigate({ to: "/results/$attemptId", params: { attemptId } });
     } catch {

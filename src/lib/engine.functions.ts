@@ -331,6 +331,13 @@ export const getAttempt = createServerFn({ method: "GET" })
     }
     const byId = new Map<string, any>(qs.map((q: any) => [q.id, q]));
 
+    const userAnswers: Record<string, string | string[]> = {};
+    for (const [k, v] of Object.entries(rawAnswers)) {
+      if (!k.startsWith("_")) {
+        userAnswers[k] = v;
+      }
+    }
+
     return {
       attempt: {
         id: att.id,
@@ -342,7 +349,7 @@ export const getAttempt = createServerFn({ method: "GET" })
         startedAt: att.started_at || att.created_at,
         deadline: att.deadline,
         status: att.status,
-        answers: rawAnswers as Record<string, string | string[]>,
+        answers: userAnswers,
         statuses: (att.statuses ?? {}) as Record<string, { visited?: boolean; marked?: boolean }>,
       },
       questions: questionIds
@@ -361,29 +368,46 @@ export const saveProgress = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z.object({
       id: z.string().uuid(),
-      answers: z.record(z.string(), z.union([z.string().max(64), z.array(z.string().max(8)).max(10)])),
+      answers: z.record(z.string(), z.any()),
       statuses: z.record(z.string(), z.object({ visited: z.boolean().optional(), marked: z.boolean().optional() })),
       events: z.array(z.object({ type: z.string().max(40), at: z.number() })).max(50).default([]),
     }).parse(d),
   )
   .handler(async ({ data, context }: { data: any; context: any }) => {
-    const { data: att } = await context.supabase.from("attempts").select("*").eq("id", data.id).maybeSingle();
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let att: any = null;
+    try {
+      const res = await context.supabase.from("attempts").select("*").eq("id", data.id).maybeSingle();
+      att = res.data;
+    } catch {}
+    if (!att) {
+      const res = await supabaseAdmin.from("attempts").select("*").eq("id", data.id).maybeSingle();
+      att = res.data;
+    }
     if (!att) throw new Error("Attempt not found");
     if (att.status !== "in_progress" || !canSave(att.deadline, Date.now())) return { saved: false, status: "submitted" as const };
 
     const rawAnswers = (att.answers ?? {}) as Record<string, any>;
     const questionIds: string[] = att.question_ids || rawAnswers?.['_meta']?.['question_ids'] || [];
-    const allowed = new Set(questionIds);
-    const answers = Object.fromEntries(Object.entries(data.answers).filter(([k]) => allowed.has(k)));
-    if (rawAnswers?.['_meta']) answers['_meta'] = rawAnswers['_meta'];
+    const allowed = questionIds.length > 0 ? new Set(questionIds) : null;
 
-    const statuses = Object.fromEntries(Object.entries(data.statuses).filter(([k]) => allowed.has(k)));
+    const filteredAnswers: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data.answers || {})) {
+      if (k.startsWith("_")) continue;
+      if (!allowed || allowed.has(k)) {
+        filteredAnswers[k] = v;
+      }
+    }
+    if (rawAnswers?.['_meta']) filteredAnswers['_meta'] = rawAnswers['_meta'];
+
+    const statuses = Object.fromEntries(
+      Object.entries(data.statuses).filter(([k]) => !k.startsWith("_") && (!allowed || allowed.has(k)))
+    );
     const events = [...((att.events as unknown[]) ?? []), ...data.events].slice(-500);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     await supabaseAdmin
       .from("attempts")
-      .update({ answers: answers as any, statuses: statuses as any, events: events as never })
+      .update({ answers: filteredAnswers as any, statuses: statuses as any, events: events as never })
       .eq("id", data.id)
       .eq("status", "in_progress");
 
@@ -392,10 +416,16 @@ export const saveProgress = createServerFn({ method: "POST" })
 
 export const submitAttempt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
-  .handler(async ({ data, context }: { data: { id: string }; context: any }) => {
+  .inputValidator((d) =>
+    z.object({
+      id: z.string().uuid(),
+      answers: z.record(z.string(), z.any()).optional(),
+      statuses: z.record(z.string(), z.any()).optional(),
+    }).parse(d)
+  )
+  .handler(async ({ data, context }: any) => {
     const { finalizeAttempt } = await import("@/lib/engine.server");
-    const att = await finalizeAttempt(data.id, context.userId);
+    const att = await finalizeAttempt(data.id, context.userId, data.answers, data.statuses);
     return { id: att.id, status: att.status };
   });
 
@@ -459,6 +489,13 @@ export const getResult = createServerFn({ method: "GET" })
       } catch {}
     }
 
+    const userAnswers: Record<string, string | string[]> = {};
+    for (const [k, v] of Object.entries(rawAnswers)) {
+      if (!k.startsWith("_")) {
+        userAnswers[k] = v;
+      }
+    }
+
     return {
       pending: false as const,
       attempt: {
@@ -470,7 +507,7 @@ export const getResult = createServerFn({ method: "GET" })
         presetId,
         startedAt: att.started_at || att.created_at,
         submittedAt: att.submitted_at || rawAnswers?.['_meta']?.['submitted_at'] || att.deadline,
-        answers: rawAnswers as Record<string, string | string[]>,
+        answers: userAnswers,
         score: att.score ?? scoredResult?.score ?? 0,
         maxScore: att.max_score ?? rawAnswers?.['_meta']?.['max_score'] ?? scoredResult?.maxScore ?? (att as any).total_questions ?? 10,
         percent: att.percent ?? (att as any).percentage ?? rawAnswers?.['_meta']?.['percent'] ?? scoredResult?.percent ?? 0,

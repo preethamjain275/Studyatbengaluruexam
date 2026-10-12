@@ -4,7 +4,12 @@ import { getPreset, PRACTICE_MARKING, type QType } from "@/lib/engine/patterns";
 import { QUESTIONS_BY_ID } from "@/data/questions-bank";
 
 /** Scores an attempt on the server exactly once. Safe to call repeatedly. */
-export async function finalizeAttempt(attemptId: string, userId?: string) {
+export async function finalizeAttempt(
+  attemptId: string,
+  userId?: string,
+  clientAnswers?: Record<string, any>,
+  clientStatuses?: Record<string, any>
+) {
   let query = supabaseAdmin.from("attempts").select("*").eq("id", attemptId);
   if (userId) query = query.eq("user_id", userId);
   let { data: att } = await query.maybeSingle();
@@ -16,11 +21,21 @@ export async function finalizeAttempt(attemptId: string, userId?: string) {
   if (submissionDecision(att.status) === "already_submitted") return att;
 
   const rawAnswers = (att.answers ?? {}) as Record<string, any>;
+
+  // Merge client-provided answers directly if submitted at finalization
+  if (clientAnswers && typeof clientAnswers === "object") {
+    for (const [k, v] of Object.entries(clientAnswers)) {
+      if (!k.startsWith("_") && v != null) {
+        rawAnswers[k] = v;
+      }
+    }
+  }
+
   let questionIds: string[] = att.question_ids || rawAnswers?.['_meta']?.['question_ids'] || [];
   const presetId = att.preset_id || rawAnswers?.['_meta']?.['preset_id'];
 
   if (questionIds.length === 0) {
-    const answeredKeys = Object.keys(rawAnswers).filter((k) => k !== '_meta' && k !== '_result');
+    const answeredKeys = Object.keys(rawAnswers).filter((k) => !k.startsWith('_'));
     if (answeredKeys.length > 0) questionIds = answeredKeys;
   }
 
@@ -44,14 +59,16 @@ export async function finalizeAttempt(attemptId: string, userId?: string) {
   // Clean answers removing internal meta key
   const cleanAnswers = { ...rawAnswers };
   delete cleanAnswers['_meta'];
+  delete cleanAnswers['_result'];
   const result = computeResult(qs, cleanAnswers as Record<string, Response>, markingFor);
   const now = new Date();
   const submittedAt = now > new Date(att.deadline || now) ? (att.deadline || now.toISOString()) : now.toISOString();
 
-  const updatePayload = {
+  const updatePayload: Record<string, any> = {
     status: "submitted",
     score: result.score,
     percentage: result.percent,
+    percent: result.percent,
     correct_count: result.correct,
     incorrect_count: result.incorrect,
     unanswered_count: result.unanswered,
@@ -66,7 +83,12 @@ export async function finalizeAttempt(attemptId: string, userId?: string) {
       },
       _result: result,
     },
+    result,
   };
+
+  if (clientStatuses && typeof clientStatuses === "object") {
+    updatePayload['statuses'] = clientStatuses;
+  }
 
   const { data: updated, error: updateErr } = await supabaseAdmin
     .from("attempts")
