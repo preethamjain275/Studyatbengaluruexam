@@ -43,7 +43,17 @@ function TestPage() {
   const title = preset ? preset.name : `${examName} · ${attempt.track} · ${LEVEL_LABEL[attempt.level as Level]} practice`;
   const backKey = `attempt-backup:${attemptId}`;
 
-  const [answers, setAnswers] = useState<Record<string, Ans>>(attempt.answers ?? {});
+  const [answers, setAnswers] = useState<Record<string, Ans>>(() => {
+    const init: Record<string, Ans> = {};
+    if (attempt.answers) {
+      for (const [k, v] of Object.entries(attempt.answers)) {
+        if (!k.startsWith("_") && v != null) {
+          init[k] = v;
+        }
+      }
+    }
+    return init;
+  });
   const [meta, setMeta] = useState<Record<string, QMeta>>(attempt.statuses ?? {});
   const [idx, setIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -61,7 +71,17 @@ function TestPage() {
   useEffect(() => {
     try {
       const b = JSON.parse(localStorage.getItem(backKey) ?? "null");
-      if (b?.answers) { setAnswers((a) => ({ ...a, ...b.answers })); setMeta((m) => ({ ...m, ...b.meta })); dirty.current = true; }
+      if (b?.answers) {
+        const cleanBAnswers: Record<string, Ans> = {};
+        for (const [k, v] of Object.entries(b.answers)) {
+          if (!k.startsWith("_") && v != null) {
+            cleanBAnswers[k] = v as Ans;
+          }
+        }
+        setAnswers((a) => ({ ...a, ...cleanBAnswers }));
+        if (b.meta) setMeta((m) => ({ ...m, ...b.meta }));
+        dirty.current = true;
+      }
       setBookmarks(JSON.parse(localStorage.getItem("bookmarks") ?? "[]"));
     } catch { /* ignore corrupt backup */ }
   }, [backKey]);
@@ -76,7 +96,13 @@ function TestPage() {
     if (q && !meta[q.id]?.visited) { setMeta((m) => ({ ...m, [q.id]: { ...m[q.id], visited: true } })); dirty.current = true; }
   }, [q, meta]);
 
-  useEffect(() => { localStorage.setItem(backKey, JSON.stringify({ answers, meta })); dirty.current = true; }, [answers, meta, backKey]);
+  useEffect(() => {
+    const cleanToStore = Object.fromEntries(
+      Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
+    );
+    localStorage.setItem(backKey, JSON.stringify({ answers: cleanToStore, meta }));
+    dirty.current = true;
+  }, [answers, meta, backKey]);
 
   const flush = useCallback(async () => {
     if (!dirty.current || submittedRef.current) return;
@@ -84,7 +110,10 @@ function TestPage() {
     const ev = events.current.splice(0);
     setSaveState("saving");
     try {
-      const r = await save({ data: { id: attemptId, answers, statuses: meta, events: ev } });
+      const cleanAnswers = Object.fromEntries(
+        Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
+      );
+      const r = await save({ data: { id: attemptId, answers: cleanAnswers, statuses: meta, events: ev } });
       setSaveState("saved");
       if (r.status === "submitted") { submittedRef.current = true; navigate({ to: "/results/$attemptId", params: { attemptId } }); }
     } catch {
@@ -98,14 +127,17 @@ function TestPage() {
     if (submittedRef.current) return;
     submittedRef.current = true; setSubmitting(true);
     try {
-      await save({ data: { id: attemptId, answers, statuses: meta, events: events.current.splice(0) } }).catch(() => null);
-      await submit({ data: { id: attemptId } });
+      const cleanAnswers = Object.fromEntries(
+        Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
+      );
+      // Submit atomically with the latest answer snapshot so answers are never lost
+      await submit({ data: { id: attemptId, answers: cleanAnswers, statuses: meta } });
       localStorage.removeItem(backKey);
       navigate({ to: "/results/$attemptId", params: { attemptId } });
     } catch {
       submittedRef.current = false; setSubmitting(false); setWarning("Submission failed - check your connection and try again. Your answers are kept on this device.");
     }
-  }, [answers, meta, attemptId, save, submit, navigate, backKey]);
+  }, [answers, meta, attemptId, submit, navigate, backKey]);
 
   // Authoritative countdown using server deadline.
   const left = remainingMs(attempt.deadline, now + offset.current);
@@ -206,7 +238,7 @@ function TestPage() {
       )}
 
       {/* Sticky test bar */}
-      <div className="glass sticky top-16 z-30 -mx-4 mb-4 border-b px-4 py-3">
+      <div className="sticky top-16 z-30 -mx-4 mb-4 border-b bg-background/95 backdrop-blur-md px-4 py-3 shadow-xs">
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{title}</p>

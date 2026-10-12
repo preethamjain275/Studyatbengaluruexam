@@ -65,6 +65,7 @@ export function TutorWidget() {
   const { open, ctx } = useStore();
   const { user } = useAuth();
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const isAssessmentPage = path.startsWith("/test/") || path.startsWith("/results/");
 
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -154,11 +155,20 @@ export function TutorWidget() {
 
     try {
       const { data } = await supabase.auth.getSession();
+      let authToken = data.session?.access_token || "";
+      if (!authToken && user) {
+        authToken = `local:${btoa(encodeURIComponent(JSON.stringify(user)))}`;
+      }
+
+      if (!authToken) {
+        throw new Error("Please sign in to your student account to ask Buddy for hints.");
+      }
+
       const res = await fetch("/api/tutor", {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${data.session?.access_token ?? ""}`,
+          authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           messages: next,
@@ -174,7 +184,7 @@ export function TutorWidget() {
           j.error ??
             (res.status === 402
               ? "AI credits are used up for now."
-              : "The AI tutor is unavailable right now. Try the revision notes meanwhile.")
+              : "Buddy AI is temporarily unavailable. Please try again in a moment.")
         );
       }
 
@@ -187,7 +197,7 @@ export function TutorWidget() {
         acc += dec.decode(value, { stream: true });
         setMsgs([...next, { role: "assistant", content: acc }]);
       }
-      if (!acc.trim()) throw new Error("No hint came back. Please try again.");
+      if (!acc.trim()) throw new Error("No response received from Buddy. Please try asking again.");
     } catch (e) {
       setErr((e as Error).message);
       setMsgs(next);
@@ -208,7 +218,7 @@ export function TutorWidget() {
       {!open && (
         <div className="fixed bottom-20 right-3 z-50 flex flex-col items-end lg:bottom-6 lg:right-6">
           {/* Animated 3D Speech Bubble Popup */}
-          {!bubbleDismissed && (
+          {!bubbleDismissed && !isAssessmentPage && (
             <div className="speech-bubble-pop mb-2 relative max-w-[240px] rounded-2xl border bg-card/95 p-3 text-xs shadow-2xl backdrop-blur-xl border-primary/20">
               <button
                 onClick={(e) => {

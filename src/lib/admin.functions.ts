@@ -357,26 +357,18 @@ export const logSuspiciousEvent = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-async function askAI(system: string, prompt: string) {
-  const apiKey = process.env["AI_API_KEY"] || process.env["OPENAI_API_KEY"] || process.env["LOVABLE_API_KEY"];
-  if (!apiKey) throw new Error("AI is not configured.");
-  const { createOpenAI } = await import("@ai-sdk/openai");
-  const { generateText } = await import("ai");
-  const baseURL = process.env["AI_GATEWAY_URL"] || (process.env["LOVABLE_API_KEY"] ? "https://ai.gateway.lovable.dev/v1" : undefined);
-  const provider = createOpenAI({
-    ...(baseURL ? { baseURL } : {}),
-    apiKey,
-    ...(process.env["LOVABLE_API_KEY"] ? { headers: { "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "vercel-ai-sdk" } } : {}),
-  });
-  const { text } = await generateText({
-    model: provider.responses("openai/gpt-6-astra"),
-    system,
+async function askAI(system: string, prompt: string): Promise<unknown[]> {
+  const { generateGeminiStructured } = await import("@/lib/gemini.server");
+  return generateGeminiStructured<unknown[]>({
+    systemInstruction: system,
     prompt,
-    providerOptions: { openai: { forceReasoning: true, reasoningEffort: "low", store: false } },
+    validator: (data) => {
+      if (Array.isArray(data)) {
+        return { success: true, data };
+      }
+      return { success: false, error: "Gemini did not return an array of questions. Try requesting fewer questions." };
+    },
   });
-  const m = text.match(/\[[\s\S]*\]/);
-  if (!m) throw new Error("AI returned no questions. Try a smaller piece of text.");
-  return JSON.parse(m[0]) as unknown[];
 }
 
 const JSON_SHAPE = `Return ONLY a JSON array. Each item: {"subject": "Physics|Chemistry|Mathematics|Botany|Zoology|General Studies|Mental Ability", "chapter": NCERT chapter name, "topic": string, "difficulty": "easy|medium|hard|expert", "qtype": "single|multiple|numerical", "body": question text (plain text, Unicode symbols), "options": [{"id":"a","text":...},{"id":"b",...},{"id":"c",...},{"id":"d",...}] (empty for numerical), "correct": array of option ids e.g. ["b"] or for numerical a number, "explanation": short step-by-step solution}.`;

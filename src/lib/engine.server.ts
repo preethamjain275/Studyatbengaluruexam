@@ -4,23 +4,54 @@ import { getPreset, PRACTICE_MARKING, type QType } from "@/lib/engine/patterns";
 import { QUESTIONS_BY_ID } from "@/data/questions-bank";
 
 /** Scores an attempt on the server exactly once. Safe to call repeatedly. */
-export async function finalizeAttempt(attemptId: string, userId?: string) {
-  let query = supabaseAdmin.from("attempts").select("*").eq("id", attemptId);
-  if (userId) query = query.eq("user_id", userId);
-  let { data: att } = await query.maybeSingle();
-  if (!att) {
-    const res = await supabaseAdmin.from("attempts").select("*").eq("id", attemptId).maybeSingle();
-    att = res.data;
-  }
+export async function finalizeAttempt(
+  attemptId: string,
+  userId?: string,
+  clientAnswers?: Record<string, string | string[]>,
+  clientStatuses?: Record<string, { visited?: boolean; marked?: boolean }>
+) {
+  const { data: att } = await supabaseAdmin.from("attempts").select("*").eq("id", attemptId).maybeSingle();
   if (!att) throw new Error("Attempt not found");
+
+  // Enforce ownership: owner or administrator only
+  if (userId && att.user_id !== userId) {
+    const { data: roleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const isAdmin = (roleRow?.role as string) === "super_admin" || roleRow?.role === "admin";
+    if (!isAdmin) {
+      throw new Error("Unauthorized: You do not have permission to finalize this attempt");
+    }
+  }
+
   if (submissionDecision(att.status) === "already_submitted") return att;
 
   const rawAnswers = (att.answers ?? {}) as Record<string, any>;
-  let questionIds: string[] = att.question_ids || rawAnswers?.['_meta']?.['question_ids'] || [];
-  const presetId = att.preset_id || rawAnswers?.['_meta']?.['preset_id'];
+
+  // Extract student answers from stored answers
+  const studentAnswers: Record<string, any> = {};
+  for (const [k, v] of Object.entries(rawAnswers)) {
+    if (!k.startsWith("_") && v != null) {
+      studentAnswers[k] = v;
+    }
+  }
+
+  // Merge in fresh clientAnswers if supplied during submission
+  if (clientAnswers) {
+    for (const [k, v] of Object.entries(clientAnswers)) {
+      if (!k.startsWith("_") && v != null) {
+        studentAnswers[k] = v;
+      }
+    }
+  }
+
+  let questionIds: string[] = att.question_ids || rawAnswers?.["_meta"]?.["question_ids"] || [];
+  const presetId = att.preset_id || rawAnswers?.["_meta"]?.["preset_id"];
 
   if (questionIds.length === 0) {
-    const answeredKeys = Object.keys(rawAnswers).filter((k) => k !== '_meta' && k !== '_result');
+    const answeredKeys = Object.keys(studentAnswers);
     if (answeredKeys.length > 0) questionIds = answeredKeys;
   }
 
@@ -41,14 +72,32 @@ export async function finalizeAttempt(attemptId: string, userId?: string) {
   const preset = att.mode === "mock" ? getPreset(presetId) : undefined;
   const markingFor = (t: QType) => (preset ? preset.marking[t] ?? preset.marking.single ?? PRACTICE_MARKING : PRACTICE_MARKING);
 
-  // Clean answers removing internal meta key
-  const cleanAnswers = { ...rawAnswers };
-  delete cleanAnswers['_meta'];
-  const result = computeResult(qs, cleanAnswers as Record<string, Response>, markingFor);
+  const result = computeResult(qs, studentAnswers as Record<string, Response>, markingFor);
   const now = new Date();
   const submittedAt = now > new Date(att.deadline || now) ? (att.deadline || now.toISOString()) : now.toISOString();
 
-  const updatePayload = {
+  const finalAnswers: Record<string, any> = {
+    ...rawAnswers,
+    ...studentAnswers,
+    _meta: {
+      ...(rawAnswers?.["_meta"] || {}),
+      submitted_at: submittedAt,
+      max_score: result.maxScore,
+      percent: result.percent,
+      score: result.score,
+      correct: result.correct,
+      incorrect: result.incorrect,
+      unanswered: result.unanswered,
+      total_questions: qs.length,
+    },
+    _result: result,
+  };
+
+  if (clientStatuses) {
+    finalAnswers["_statuses"] = clientStatuses;
+  }
+
+  const baseUpdatePayload = {
     status: "submitted",
     score: result.score,
     percentage: result.percent,
@@ -56,27 +105,38 @@ export async function finalizeAttempt(attemptId: string, userId?: string) {
     incorrect_count: result.incorrect,
     unanswered_count: result.unanswered,
     total_questions: qs.length,
-    answers: {
-      ...rawAnswers,
-      _meta: {
-        ...(rawAnswers?.['_meta'] || {}),
-        submitted_at: submittedAt,
-        max_score: result.maxScore,
-        percent: result.percent,
-      },
-      _result: result,
-    },
+    answers: finalAnswers,
   };
 
-  const { data: updated, error: updateErr } = await supabaseAdmin
+  // Try updating with full columns first (in case percent/result/etc. exist), fallback to base payload
+  const fullUpdatePayload = {
+    ...baseUpdatePayload,
+    percent: result.percent,
+    max_score: result.maxScore,
+    submitted_at: submittedAt,
+    result: result,
+  };
+
+  const { data: updatedFull, error: errFull } = await supabaseAdmin
     .from("attempts")
-    .update(updatePayload as any)
+    .update(fullUpdatePayload as any)
     .eq("id", attemptId)
     .select("*")
     .maybeSingle();
 
-  if (updated) return updated;
-  if (updateErr) console.error("Error finalizing attempt:", updateErr);
+  if (updatedFull && !errFull) return updatedFull;
+
+  // Fallback to base columns that always exist in PostgreSQL
+  const { data: updatedBase, error: errBase } = await supabaseAdmin
+    .from("attempts")
+    .update(baseUpdatePayload as any)
+    .eq("id", attemptId)
+    .select("*")
+    .maybeSingle();
+
+  if (updatedBase && !errBase) return updatedBase;
+  if (errBase) console.error("Error finalizing attempt:", errBase);
+
   const { data: again } = await supabaseAdmin.from("attempts").select("*").eq("id", attemptId).single();
   return again!;
 }

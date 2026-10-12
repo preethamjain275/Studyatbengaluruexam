@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Award, CheckCircle2, RotateCcw, XCircle } from "lucide-react";
+import { Award, CheckCircle2, MinusCircle, RotateCcw, XCircle } from "lucide-react";
 import { getResult, startPractice, submitAttempt } from "@/lib/engine.functions";
 import { getPreset, LEVEL_LABEL, LEVELS, type Level } from "@/lib/engine/patterns";
 import { MASTERY_THRESHOLD, formatClock } from "@/lib/engine/state";
@@ -30,9 +30,9 @@ export const Route = createFileRoute("/_authenticated/results/$attemptId")({
 });
 
 function fmtAns(a: unknown) {
-  if (a == null || a === "") return "-";
+  if (a == null || a === "") return "Unanswered";
   if (Array.isArray(a)) return a.join(", ").toUpperCase();
-  if (typeof a === "object" && "value" in (a as object)) return String((a as { value: number }).value);
+  if (typeof a === "object" && a !== null && "value" in (a as object)) return String((a as { value: number }).value);
   return String(a).toUpperCase();
 }
 
@@ -77,7 +77,7 @@ function ResultPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* Student Scorecard & Status Banner */}
       <div className="surface p-6 shadow-sm border rounded-2xl">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -193,9 +193,15 @@ function ResultPage() {
             {questions.map((q, i) => {
               const o = outcomes[q.id]?.outcome ?? "unanswered";
               return (
-                <li key={q.id} className="rounded-xl border p-4 shadow-sm bg-card">
+                <li key={q.id} className="rounded-xl border p-4 shadow-sm bg-card scroll-mt-24 transition-colors">
                   <button className="flex w-full items-start gap-3 text-left" onClick={() => setOpen(open === q.id ? null : q.id)} aria-expanded={open === q.id}>
-                    {o === "correct" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
+                    {o === "correct" ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : o === "unanswered" ? (
+                      <MinusCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    )}
                     <div className="flex-1">
                       <span className="text-sm font-semibold">Q{i + 1}. {q.body}</span>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -204,7 +210,17 @@ function ResultPage() {
                         <span className="bg-muted px-2 py-0.5 rounded capitalize">{q.difficulty}</span>
                       </div>
                     </div>
-                    <span className={`text-xs font-semibold uppercase px-2 py-0.5 rounded ${o === "correct" ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"}`}>{o}</span>
+                    <span className={`text-xs font-semibold uppercase px-2.5 py-0.5 rounded-full border ${
+                      o === "correct"
+                        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+                        : o === "unanswered"
+                        ? "bg-muted text-muted-foreground border-border"
+                        : o === "partial"
+                        ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                        : "bg-destructive/10 text-destructive border-destructive/30"
+                    }`}>
+                      {o}
+                    </span>
                   </button>
                   {open === q.id && (
                     <div className="mt-4 space-y-3 border-t pt-4 text-sm animate-in fade-in">
@@ -213,15 +229,30 @@ function ResultPage() {
                           <p className="text-xs font-semibold uppercase text-muted-foreground">Options:</p>
                           <ul className="space-y-1">
                             {q.options.map((op: any) => {
-                              const isCorrectOpt = String(q.correct).toLowerCase() === String(op.id).toLowerCase();
-                              const isUserChosen = String(attempt.answers[q.id]).toLowerCase() === String(op.id).toLowerCase();
+                              const opIdStr = String(op.id).toLowerCase();
+                              const isCorrectOpt = Array.isArray(q.correct)
+                                ? (q.correct as string[]).map((c) => String(c).toLowerCase()).includes(opIdStr)
+                                : String(q.correct ?? "").toLowerCase() === opIdStr;
+
+                              const userAns = attempt.answers?.[q.id];
+                              const isUserChosen = Array.isArray(userAns)
+                                ? (userAns as string[]).map((c) => String(c).toLowerCase()).includes(opIdStr)
+                                : String(userAns ?? "").toLowerCase() === opIdStr;
+
                               return (
-                                <li key={op.id} className={`p-1.5 rounded text-xs flex items-center justify-between ${
-                                  isCorrectOpt ? "bg-emerald-500/15 font-semibold text-emerald-700 border border-emerald-500/30" : isUserChosen ? "bg-destructive/15 text-destructive font-medium border border-destructive/30" : ""
+                                <li key={op.id} className={`p-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                                  isCorrectOpt
+                                    ? "bg-emerald-500/15 font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                    : isUserChosen
+                                    ? "bg-destructive/15 text-destructive font-medium border border-destructive/30"
+                                    : "bg-card/40"
                                 }`}>
                                   <span><b className="uppercase mr-1.5">{op.id}.</b> {op.text}</span>
-                                  {isCorrectOpt && <span className="text-[10px] uppercase font-bold bg-emerald-600 text-white px-1.5 py-0.5 rounded">Correct Key</span>}
-                                  {!isCorrectOpt && isUserChosen && <span className="text-[10px] uppercase font-bold bg-destructive text-white px-1.5 py-0.5 rounded">Your Answer</span>}
+                                  <div className="flex items-center gap-1.5">
+                                    {isCorrectOpt && <span className="text-[10px] uppercase font-bold bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow-xs">Correct Key</span>}
+                                    {isUserChosen && !isCorrectOpt && <span className="text-[10px] uppercase font-bold bg-destructive text-white px-2 py-0.5 rounded-full shadow-xs">Your Answer</span>}
+                                    {isUserChosen && isCorrectOpt && <span className="text-[10px] uppercase font-bold bg-emerald-700 text-white px-2 py-0.5 rounded-full shadow-xs">Your Answer ✓</span>}
+                                  </div>
                                 </li>
                               );
                             })}
@@ -230,7 +261,7 @@ function ResultPage() {
                       )}
 
                       <div className="flex flex-wrap gap-4 text-xs font-medium bg-background p-2.5 rounded-lg border">
-                        <p>Your Response: <b className="uppercase text-foreground">{fmtAns(attempt.answers[q.id])}</b></p>
+                        <p>Your Response: <b className="uppercase text-foreground">{fmtAns(attempt.answers?.[q.id])}</b></p>
                         <p>Correct Answer: <b className="uppercase text-emerald-600">{fmtAns(q.correct)}</b></p>
                       </div>
 

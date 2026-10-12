@@ -295,17 +295,29 @@ export const getAttempt = createServerFn({ method: "GET" })
     let { data: att } = await supabaseAdmin.from("attempts").select("*").eq("id", data.id).maybeSingle();
     if (!att) throw new Error("Attempt not found");
 
+    // Enforce ownership: owner or administrator only
+    if (att.user_id !== userId) {
+      const { data: roleRow } = await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const isAdmin = (roleRow?.role as string) === "super_admin" || roleRow?.role === "admin";
+      if (!isAdmin) {
+        throw new Error("Unauthorized: You do not have permission to access this attempt");
+      }
+    }
+
     if (att.status === "in_progress" && isExpired(att.deadline, Date.now())) {
       const { finalizeAttempt } = await import("@/lib/engine.server");
       att = await finalizeAttempt(att.id, userId);
     }
 
     const rawAnswers = (att.answers ?? {}) as Record<string, any>;
-    let questionIds: string[] = att.question_ids || rawAnswers?.['_meta']?.['question_ids'] || [];
-    const track = att.track || rawAnswers?.['_meta']?.['track'] || "Physics";
-    const level = (att.level || rawAnswers?.['_meta']?.['level'] || "easy") as Level;
-    const presetId = att.preset_id || rawAnswers?.['_meta']?.['preset_id'] || "";
-
+    let questionIds: string[] = att.question_ids || rawAnswers?.["_meta"]?.["question_ids"] || [];
+    const track = att.track || rawAnswers?.["_meta"]?.["track"] || "Physics";
+    const level = (att.level || rawAnswers?.["_meta"]?.["level"] || "easy") as Level;
+    const presetId = att.preset_id || rawAnswers?.["_meta"]?.["preset_id"] || "";
 
     // Dynamic recovery: If questions were empty or previous IDs invalid, auto-populate from 938-item question bank!
     if (!questionIds || questionIds.length === 0) {
@@ -317,8 +329,8 @@ export const getAttempt = createServerFn({ method: "GET" })
 
         // Save question IDs to attempt
         await supabaseAdmin.from("attempts").update({
-          answers: { ...rawAnswers, _meta: { ...(rawAnswers?.['_meta'] || {}), track: t.name, level, question_ids: questionIds } },
-          total_questions: questionIds.length
+          answers: { ...rawAnswers, _meta: { ...(rawAnswers?.["_meta"] || {}), track: t.name, level, question_ids: questionIds } },
+          total_questions: questionIds.length,
         } as any).eq("id", att.id);
       }
     }
@@ -331,6 +343,16 @@ export const getAttempt = createServerFn({ method: "GET" })
     }
     const byId = new Map<string, any>(qs.map((q: any) => [q.id, q]));
 
+    // Extract ONLY pure student answers (never internal _meta or _result)
+    const cleanStudentAnswers: Record<string, string | string[]> = {};
+    for (const [k, v] of Object.entries(rawAnswers)) {
+      if (!k.startsWith("_") && v != null) {
+        cleanStudentAnswers[k] = v;
+      }
+    }
+
+    const savedStatuses = (att.statuses || rawAnswers?.["_statuses"] || rawAnswers?.["_meta"]?.["statuses"] || {}) as Record<string, { visited?: boolean; marked?: boolean }>;
+
     return {
       attempt: {
         id: att.id,
@@ -342,8 +364,8 @@ export const getAttempt = createServerFn({ method: "GET" })
         startedAt: att.started_at || att.created_at,
         deadline: att.deadline,
         status: att.status,
-        answers: rawAnswers as Record<string, string | string[]>,
-        statuses: (att.statuses ?? {}) as Record<string, { visited?: boolean; marked?: boolean }>,
+        answers: cleanStudentAnswers,
+        statuses: savedStatuses,
       },
       questions: questionIds
         .map((id) => byId.get(id))
@@ -356,34 +378,84 @@ export const getAttempt = createServerFn({ method: "GET" })
     };
   });
 
+const answerValueSchema = z.union([
+  z.string().max(128),
+  z.number().transform((n) => String(n)),
+  z.array(z.string().max(64)).max(20),
+]);
+
 export const saveProgress = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
     z.object({
       id: z.string().uuid(),
-      answers: z.record(z.string(), z.union([z.string().max(64), z.array(z.string().max(8)).max(10)])),
-      statuses: z.record(z.string(), z.object({ visited: z.boolean().optional(), marked: z.boolean().optional() })),
+      answers: z.preprocess((val) => {
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const clean: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+            if (!k.startsWith("_")) clean[k] = v;
+          }
+          return clean;
+        }
+        return val;
+      }, z.record(z.string(), answerValueSchema)),
+      statuses: z.record(z.string(), z.object({ visited: z.boolean().optional(), marked: z.boolean().optional() })).default({}),
       events: z.array(z.object({ type: z.string().max(40), at: z.number() })).max(50).default([]),
     }).parse(d),
   )
   .handler(async ({ data, context }: { data: any; context: any }) => {
-    const { data: att } = await context.supabase.from("attempts").select("*").eq("id", data.id).maybeSingle();
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: att } = await supabaseAdmin.from("attempts").select("*").eq("id", data.id).maybeSingle();
     if (!att) throw new Error("Attempt not found");
+
+    // Enforce ownership
+    if (att.user_id !== context.userId) {
+      const { data: roleRow } = await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", context.userId)
+        .maybeSingle();
+      const isAdmin = (roleRow?.role as string) === "super_admin" || roleRow?.role === "admin";
+      if (!isAdmin) {
+        throw new Error("Unauthorized: You do not have permission to save this attempt");
+      }
+    }
+
     if (att.status !== "in_progress" || !canSave(att.deadline, Date.now())) return { saved: false, status: "submitted" as const };
 
     const rawAnswers = (att.answers ?? {}) as Record<string, any>;
-    const questionIds: string[] = att.question_ids || rawAnswers?.['_meta']?.['question_ids'] || [];
+    const questionIds: string[] = att.question_ids || rawAnswers?.["_meta"]?.["question_ids"] || [];
     const allowed = new Set(questionIds);
-    const answers = Object.fromEntries(Object.entries(data.answers).filter(([k]) => allowed.has(k)));
-    if (rawAnswers?.['_meta']) answers['_meta'] = rawAnswers['_meta'];
+    const validStudentAnswers = Object.fromEntries(Object.entries(data.answers).filter(([k]) => allowed.has(k)));
 
-    const statuses = Object.fromEntries(Object.entries(data.statuses).filter(([k]) => allowed.has(k)));
+    // Preserve metadata and store statuses safely inside answers JSONB
+    const mergedAnswers = {
+      ...rawAnswers,
+      ...validStudentAnswers,
+      _meta: {
+        ...(rawAnswers?.["_meta"] || {}),
+        updated_at: new Date().toISOString(),
+      },
+      _statuses: data.statuses,
+    };
+
+    const validStatuses = Object.fromEntries(Object.entries(data.statuses).filter(([k]) => allowed.has(k)));
     const events = [...((att.events as unknown[]) ?? []), ...data.events].slice(-500);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Update payload with canonical columns
+    const updateObj: Record<string, any> = {
+      answers: mergedAnswers,
+      events: events as never,
+    };
+
+    // If statuses column exists in table, update it too
+    if ("statuses" in att) {
+      updateObj["statuses"] = validStatuses;
+    }
 
     await supabaseAdmin
       .from("attempts")
-      .update({ answers: answers as any, statuses: statuses as any, events: events as never })
+      .update(updateObj as any)
       .eq("id", data.id)
       .eq("status", "in_progress");
 
@@ -392,20 +464,48 @@ export const saveProgress = createServerFn({ method: "POST" })
 
 export const submitAttempt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
-  .handler(async ({ data, context }: { data: { id: string }; context: any }) => {
+  .inputValidator((d) =>
+    z.object({
+      id: z.string().uuid(),
+      answers: z.preprocess((val) => {
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const clean: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+            if (!k.startsWith("_")) clean[k] = v;
+          }
+          return clean;
+        }
+        return val;
+      }, z.record(z.string(), answerValueSchema)).optional(),
+      statuses: z.record(z.string(), z.object({ visited: z.boolean().optional(), marked: z.boolean().optional() })).optional(),
+    }).parse(d)
+  )
+  .handler(async ({ data, context }: { data: any; context: any }) => {
     const { finalizeAttempt } = await import("@/lib/engine.server");
-    const att = await finalizeAttempt(data.id, context.userId);
+    const att = await finalizeAttempt(data.id, context.userId, data.answers, data.statuses);
     return { id: att.id, status: att.status };
   });
 
 export const getResult = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
-  .handler(async ({ data }: { data: { id: string }; context: any }) => {
+  .handler(async ({ data, context }: { data: { id: string }; context: any }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let { data: att } = await supabaseAdmin.from("attempts").select("*").eq("id", data.id).maybeSingle();
     if (!att) throw new Error("Attempt not found");
+
+    // Enforce ownership: owner or administrator only
+    if (att.user_id !== context.userId) {
+      const { data: roleRow } = await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", context.userId)
+        .maybeSingle();
+      const isAdmin = (roleRow?.role as string) === "super_admin" || roleRow?.role === "admin";
+      if (!isAdmin) {
+        throw new Error("Unauthorized: You do not have permission to view this result");
+      }
+    }
 
     if (att.status !== "submitted") {
       const { finalizeAttempt } = await import("@/lib/engine.server");
@@ -413,10 +513,10 @@ export const getResult = createServerFn({ method: "GET" })
     }
 
     const rawAnswers = (att.answers ?? {}) as Record<string, any>;
-    const questionIds: string[] = att.question_ids || rawAnswers?.['_meta']?.['question_ids'] || [];
-    const presetId = att.preset_id || rawAnswers?.['_meta']?.['preset_id'];
-    const track = att.track || rawAnswers?.['_meta']?.['track'] || "";
-    const level = att.level || rawAnswers?.['_meta']?.['level'] || "easy";
+    const questionIds: string[] = att.question_ids || rawAnswers?.["_meta"]?.["question_ids"] || [];
+    const presetId = att.preset_id || rawAnswers?.["_meta"]?.["preset_id"];
+    const track = att.track || rawAnswers?.["_meta"]?.["track"] || "";
+    const level = att.level || rawAnswers?.["_meta"]?.["level"] || "easy";
 
     const preset = att.mode === "mock" ? getPreset(presetId) : undefined;
     const showSolutions = preset ? preset.showSolutions : true;
@@ -424,37 +524,41 @@ export const getResult = createServerFn({ method: "GET" })
     // Resolve question details and solutions from in-memory question bank
     let qs: any[] = questionIds.map((id) => QUESTIONS_BY_ID.get(id)).filter(Boolean);
     if (qs.length === 0 && questionIds.length > 0) {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const { data: dbQs } = await supabaseAdmin.from("questions").select(`${QUESTION_COLS}, correct, explanation`).in("id", questionIds);
       qs = (dbQs ?? []) as any[];
     }
     const byId = new Map<string, any>(qs.map((q: any) => [q.id, q]));
 
+    // Extract ONLY pure student answers
+    const cleanStudentAnswers: Record<string, string | string[]> = {};
+    for (const [k, v] of Object.entries(rawAnswers)) {
+      if (!k.startsWith("_") && v != null) {
+        cleanStudentAnswers[k] = v;
+      }
+    }
+
     const questions = questionIds.map((id) => byId.get(id)).filter(Boolean).map((q: any) => ({
       ...q,
       solution_steps: [],
-      options: q.options as { id: string; text: string }[],
+      options: shuffleOptions(q.options as { id: string; text: string }[], att.id + q.id),
       correct: showSolutions ? (q.correct as string | string[] | { value: number; tolerance?: number }) : null,
       explanation: showSolutions ? q.explanation : "",
     }));
 
-    let scoredResult = (att.result || rawAnswers?.['_result']) as import("@/lib/engine/scoring").AttemptResult | undefined;
+    let scoredResult = (att.result || rawAnswers?.["_result"]) as import("@/lib/engine/scoring").AttemptResult | undefined;
     if (!scoredResult || !scoredResult.outcomes) {
       const { computeResult } = await import("@/lib/engine/scoring");
       const { PRACTICE_MARKING } = await import("@/lib/engine/patterns");
       const markingFor = (t: import("@/lib/engine/patterns").QType) =>
         preset ? preset.marking[t] ?? preset.marking.single ?? PRACTICE_MARKING : PRACTICE_MARKING;
-      const cleanAnswers = { ...rawAnswers };
-      delete cleanAnswers['_meta'];
-      delete cleanAnswers['_result'];
       scoredResult = computeResult(
         questions.map((q: any) => ({ id: q.id, qtype: q.qtype, correct: q.correct, subject: q.subject, chapter: q.chapter })),
-        cleanAnswers,
+        cleanStudentAnswers,
         markingFor
       );
       try {
         await supabaseAdmin.from("attempts").update({
-          answers: { ...rawAnswers, _result: scoredResult }
+          answers: { ...rawAnswers, _result: scoredResult },
         } as any).eq("id", att.id);
       } catch {}
     }
@@ -469,11 +573,11 @@ export const getResult = createServerFn({ method: "GET" })
         level,
         presetId,
         startedAt: att.started_at || att.created_at,
-        submittedAt: att.submitted_at || rawAnswers?.['_meta']?.['submitted_at'] || att.deadline,
-        answers: rawAnswers as Record<string, string | string[]>,
+        submittedAt: att.submitted_at || rawAnswers?.["_meta"]?.["submitted_at"] || att.deadline,
+        answers: cleanStudentAnswers,
         score: att.score ?? scoredResult?.score ?? 0,
-        maxScore: att.max_score ?? rawAnswers?.['_meta']?.['max_score'] ?? scoredResult?.maxScore ?? (att as any).total_questions ?? 10,
-        percent: att.percent ?? (att as any).percentage ?? rawAnswers?.['_meta']?.['percent'] ?? scoredResult?.percent ?? 0,
+        maxScore: att.max_score ?? rawAnswers?.["_meta"]?.["max_score"] ?? scoredResult?.maxScore ?? (att as any).total_questions ?? 10,
+        percent: att.percent ?? (att as any).percentage ?? rawAnswers?.["_meta"]?.["percent"] ?? scoredResult?.percent ?? 0,
       },
       result: scoredResult,
       questions,
