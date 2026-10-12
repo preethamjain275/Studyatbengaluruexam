@@ -21,8 +21,8 @@ export async function handleTutor(request: Request) {
     return Response.json({ error: "Please sign in to use the AI tutor." }, { status: 401 });
   }
 
-  let userId = "student-user";
-  let userEmail = "student@studyatbangalore.in";
+  let userId = "";
+  let userEmail = "";
 
   // Enforce genuine Supabase authentication (fail closed, reject spoofed local tokens)
   if (token.startsWith("local:")) {

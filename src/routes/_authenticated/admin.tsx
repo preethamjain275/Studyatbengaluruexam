@@ -1473,7 +1473,7 @@ function MasterySettingsView() {
     // Also sync to Supabase app_settings
     try {
       const { supabase } = await import("@/integrations/supabase/client");
-      await (supabase as any).from("app_settings").upsert({
+      await supabase.from("app_settings").upsert({
         key: "mastery_threshold",
         value: { threshold, updated_by: "admin" },
         updated_at: new Date().toISOString(),
@@ -1608,7 +1608,7 @@ function AnnouncementManagerView() {
 
     try {
       const { supabase } = await import("@/integrations/supabase/client");
-      await (supabase as any).from("announcements").insert(item);
+      await supabase.from("announcements").insert(item);
     } catch {}
 
     setSaved(true);

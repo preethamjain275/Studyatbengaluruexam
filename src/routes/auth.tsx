@@ -137,7 +137,7 @@ function AuthPage() {
         if (data.user) {
           loginUser(data.user, false);
           try {
-            await (supabase as any).from("profiles").upsert({
+            await supabase.from("profiles").upsert({
               id: data.user.id,
               display_name: name.trim(),
               standard,

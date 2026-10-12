@@ -97,50 +97,36 @@ export async function finalizeAttempt(
     finalAnswers["_statuses"] = clientStatuses;
   }
 
-  const baseUpdatePayload = {
+  const updatePayload = {
     status: "submitted",
     score: result.score,
+    max_score: result.maxScore,
+    percent: result.percent,
     percentage: result.percent,
     correct_count: result.correct,
     incorrect_count: result.incorrect,
     unanswered_count: result.unanswered,
     total_questions: qs.length,
-    answers: finalAnswers,
-  };
-
-  // Try updating with full columns first (in case percent/result/statuses exist), fallback to base payload
-  const fullUpdatePayload: Record<string, any> = {
-    ...baseUpdatePayload,
-    percent: result.percent,
-    max_score: result.maxScore,
     submitted_at: submittedAt,
-    result: result,
+    answers: finalAnswers,
+    statuses: (clientStatuses && typeof clientStatuses === "object" ? clientStatuses : (att.statuses || {})) as never,
+    result: result as never,
   };
 
-  if (clientStatuses && typeof clientStatuses === "object") {
-    fullUpdatePayload["statuses"] = clientStatuses;
+  const { data: updatedAttempt, error: updateErr } = await supabaseAdmin
+    .from("attempts")
+    .update(updatePayload)
+    .eq("id", attemptId)
+    .select("*")
+    .maybeSingle();
+
+  if (updateErr) {
+    console.error("Error finalizing attempt:", updateErr);
+    throw new Error(`Failed to finalize attempt: ${updateErr.message}`);
   }
 
-  const { data: updatedFull, error: errFull } = await supabaseAdmin
-    .from("attempts")
-    .update(fullUpdatePayload as any)
-    .eq("id", attemptId)
-    .select("*")
-    .maybeSingle();
+  if (updatedAttempt) return updatedAttempt;
 
-  if (updatedFull && !errFull) return updatedFull;
-
-  // Fallback to base columns that always exist in PostgreSQL
-  const { data: updatedBase, error: errBase } = await supabaseAdmin
-    .from("attempts")
-    .update(baseUpdatePayload as any)
-    .eq("id", attemptId)
-    .select("*")
-    .maybeSingle();
-
-  if (updatedBase && !errBase) return updatedBase;
-  if (errBase) console.error("Error finalizing attempt:", errBase);
-
-  const { data: again } = await supabaseAdmin.from("attempts").select("*").eq("id", attemptId).single();
-  return again!;
+  const { data: fallbackFetch } = await supabaseAdmin.from("attempts").select("*").eq("id", attemptId).single();
+  return fallbackFetch!;
 }

@@ -6,10 +6,10 @@ export interface Announcement {
   id: string;
   title: string;
   message: string;
-  link?: string;
-  badge?: string;
+  link?: string | null;
+  badge?: string | null;
   active: boolean;
-  created_at?: string;
+  created_at?: string | null;
 }
 
 const DEFAULT_ANNOUNCEMENT: Announcement = {
@@ -38,7 +38,7 @@ export function AnnouncementPopup() {
 
       // 2. Query Supabase announcements table if available
       try {
-        const { data } = await (supabase as any)
+        const { data } = await supabase
           .from("announcements")
           .select("*")
           .eq("active", true)
@@ -50,10 +50,10 @@ export function AnnouncementPopup() {
           activeItem = {
             id: data.id,
             title: data.title,
-            message: data.message || data.content,
+            message: data.message,
             link: data.link,
             badge: data.badge || "Important Announcement 📢",
-            active: data.active,
+            active: data.active ?? true,
           };
           localStorage.setItem("study_active_announcement", JSON.stringify(activeItem));
         }

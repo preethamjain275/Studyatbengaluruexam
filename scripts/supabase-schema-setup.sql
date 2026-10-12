@@ -240,7 +240,15 @@ ALTER TABLE public.attempts
   ADD COLUMN IF NOT EXISTS statuses jsonb DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS result jsonb DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS percent numeric,
-  ADD COLUMN IF NOT EXISTS max_score numeric;
+  ADD COLUMN IF NOT EXISTS percentage numeric,
+  ADD COLUMN IF NOT EXISTS max_score numeric,
+  ADD COLUMN IF NOT EXISTS total_questions integer,
+  ADD COLUMN IF NOT EXISTS correct_count integer,
+  ADD COLUMN IF NOT EXISTS incorrect_count integer,
+  ADD COLUMN IF NOT EXISTS unanswered_count integer;
+
+UPDATE public.attempts SET percentage = percent WHERE percentage IS NULL AND percent IS NOT NULL;
+UPDATE public.attempts SET percent = percentage WHERE percent IS NULL AND percentage IS NOT NULL;
 
 ALTER TABLE public.attempts ENABLE ROW LEVEL SECURITY;
 
@@ -294,6 +302,29 @@ DO $$ BEGIN
       WITH CHECK (public.has_role(auth.uid()::text, 'admin'));
   END IF;
 END $$;
+
+-- 9. AUDIT_LOGS table for anti-cheating & security monitoring
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id text NOT NULL,
+  event text NOT NULL,
+  payload jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON public.audit_logs TO service_role;
+GRANT SELECT, INSERT ON public.audit_logs TO authenticated;
+
+DROP POLICY IF EXISTS "AuditLogs admin select policy" ON public.audit_logs;
+CREATE POLICY "AuditLogs admin select policy" ON public.audit_logs
+  FOR SELECT TO authenticated
+  USING (public.has_role(auth.uid()::text, 'admin'));
+
+DROP POLICY IF EXISTS "AuditLogs insert policy" ON public.audit_logs;
+CREATE POLICY "AuditLogs insert policy" ON public.audit_logs
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin'));
 
 -- Done!
 SELECT 'Supabase setup and security hardening completed successfully!' AS status;

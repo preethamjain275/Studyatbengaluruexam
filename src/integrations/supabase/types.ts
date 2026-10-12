@@ -14,18 +14,69 @@ export type Database = {
   }
   public: {
     Tables: {
+      announcements: {
+        Row: {
+          active: boolean | null
+          badge: string | null
+          created_at: string | null
+          id: string
+          link: string | null
+          message: string
+          title: string
+        }
+        Insert: {
+          active?: boolean | null
+          badge?: string | null
+          created_at?: string | null
+          id?: string
+          link?: string | null
+          message: string
+          title: string
+        }
+        Update: {
+          active?: boolean | null
+          badge?: string | null
+          created_at?: string | null
+          id?: string
+          link?: string | null
+          message?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       attempts: {
         Row: {
           answers: Json
+          correct_count: number | null
           created_at: string
           deadline: string
           events: Json
           exam_id: string
           id: string
+          incorrect_count: number | null
           level: string
           max_score: number | null
           mode: string
           percent: number | null
+          percentage: number | null
           preset_id: string
           question_ids: string[]
           result: Json | null
@@ -34,20 +85,25 @@ export type Database = {
           status: string
           statuses: Json
           submitted_at: string | null
+          total_questions: number | null
           track: string
+          unanswered_count: number | null
           user_id: string
         }
         Insert: {
           answers?: Json
+          correct_count?: number | null
           created_at?: string
           deadline: string
           events?: Json
           exam_id: string
           id?: string
+          incorrect_count?: number | null
           level?: string
           max_score?: number | null
           mode: string
           percent?: number | null
+          percentage?: number | null
           preset_id?: string
           question_ids: string[]
           result?: Json | null
@@ -56,20 +112,25 @@ export type Database = {
           status?: string
           statuses?: Json
           submitted_at?: string | null
+          total_questions?: number | null
           track?: string
+          unanswered_count?: number | null
           user_id: string
         }
         Update: {
           answers?: Json
+          correct_count?: number | null
           created_at?: string
           deadline?: string
           events?: Json
           exam_id?: string
           id?: string
+          incorrect_count?: number | null
           level?: string
           max_score?: number | null
           mode?: string
           percent?: number | null
+          percentage?: number | null
           preset_id?: string
           question_ids?: string[]
           result?: Json | null
@@ -78,8 +139,94 @@ export type Database = {
           status?: string
           statuses?: Json
           submitted_at?: string | null
+          total_questions?: number | null
           track?: string
+          unanswered_count?: number | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      audit_logs: {
+        Row: {
+          created_at: string | null
+          event: string
+          id: string
+          payload: Json | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          event: string
+          id?: string
+          payload?: Json | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          event?: string
+          id?: string
+          payload?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          about_me: string | null
+          avatar_url: string | null
+          created_at: string | null
+          display_name: string | null
+          email: string | null
+          exam_details: Json | null
+          id: string
+          learning_preferences: Json | null
+          location: string | null
+          notification_preferences: Json | null
+          phone: string | null
+          primary_exam: string | null
+          standard: string | null
+          stream: string | null
+          study_goals: Json | null
+          target_exams: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          about_me?: string | null
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          email?: string | null
+          exam_details?: Json | null
+          id: string
+          learning_preferences?: Json | null
+          location?: string | null
+          notification_preferences?: Json | null
+          phone?: string | null
+          primary_exam?: string | null
+          standard?: string | null
+          stream?: string | null
+          study_goals?: Json | null
+          target_exams?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          about_me?: string | null
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          email?: string | null
+          exam_details?: Json | null
+          id?: string
+          learning_preferences?: Json | null
+          location?: string | null
+          notification_preferences?: Json | null
+          phone?: string | null
+          primary_exam?: string | null
+          standard?: string | null
+          stream?: string | null
+          study_goals?: Json | null
+          target_exams?: string[] | null
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -157,18 +304,21 @@ export type Database = {
       }
       user_roles: {
         Row: {
+          created_at: string | null
           id: string
-          role: Database["public"]["Enums"]["app_role"]
+          role: Database["public"]["Enums"]["app_role"] | string
           user_id: string
         }
         Insert: {
+          created_at?: string | null
           id?: string
-          role: Database["public"]["Enums"]["app_role"]
+          role: Database["public"]["Enums"]["app_role"] | string
           user_id: string
         }
         Update: {
+          created_at?: string | null
           id?: string
-          role?: Database["public"]["Enums"]["app_role"]
+          role?: Database["public"]["Enums"]["app_role"] | string
           user_id?: string
         }
         Relationships: []
@@ -182,14 +332,14 @@ export type Database = {
       claim_first_admin: { Args: never; Returns: boolean }
       has_role: {
         Args: {
-          _role: Database["public"]["Enums"]["app_role"]
+          _role: Database["public"]["Enums"]["app_role"] | string
           _user_id: string
         }
         Returns: boolean
       }
     }
     Enums: {
-      app_role: "admin" | "user"
+      app_role: "admin" | "user" | "super_admin"
       difficulty_level: "easy" | "medium" | "hard" | "expert"
       question_type: "single" | "multiple" | "numerical" | "assertion_reason"
       verification_status: "draft" | "in_review" | "verified" | "rejected"
@@ -320,7 +470,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "user"],
+      app_role: ["admin", "user", "super_admin"],
       difficulty_level: ["easy", "medium", "hard", "expert"],
       question_type: ["single", "multiple", "numerical", "assertion_reason"],
       verification_status: ["draft", "in_review", "verified", "rejected"],

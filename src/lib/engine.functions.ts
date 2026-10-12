@@ -150,8 +150,7 @@ export const startPractice = createServerFn({ method: "POST" })
     const chosen = selectQuestions(ids, history, Math.min(data.count, ids.length));
     const deadline = new Date(Date.now() + chosen.length * PRACTICE_SECONDS_PER_Q[data.level] * 1000).toISOString();
 
-    let row: any = null;
-    const fullPayload = {
+    const attemptPayload = {
       user_id: userId,
       mode: "practice",
       exam_id: data.examId,
@@ -164,25 +163,14 @@ export const startPractice = createServerFn({ method: "POST" })
       answers: { _meta: { track: t.name, level: data.level, question_ids: chosen } },
     };
 
-    const res1 = await supabaseAdmin.from("attempts").insert(fullPayload as any).select("id").single();
-    if (!res1.error && res1.data) {
-      row = res1.data;
-    } else {
-      const basicPayload = {
-        user_id: userId,
-        mode: "practice",
-        exam_id: data.examId,
-        deadline,
-        status: "in_progress",
-        total_questions: chosen.length,
-        answers: { _meta: { track: t.name, level: data.level, question_ids: chosen } },
-      };
-      const res2 = await supabaseAdmin.from("attempts").insert(basicPayload as any).select("id").single();
-      if (!res2.error && res2.data) {
-        row = res2.data;
-      } else {
-        throw new Error(res2.error?.message || "Could not start the practice set. Please try again.");
-      }
+    const { data: row, error } = await supabaseAdmin
+      .from("attempts")
+      .insert(attemptPayload)
+      .select("id")
+      .single();
+
+    if (error || !row) {
+      throw new Error(error?.message || "Could not start the practice set. Please try again.");
     }
 
     return { attemptId: row.id };
@@ -248,8 +236,7 @@ export const startMock = createServerFn({ method: "POST" })
     if (chosen.length === 0) throw new Error("No verified questions are available for this test yet.");
     const deadline = new Date(Date.now() + plan.durationMin * 60_000).toISOString();
 
-    let row: any = null;
-    const fullPayload = {
+    const attemptPayload = {
       user_id: userId,
       mode: "mock",
       exam_id: p.examId,
@@ -261,25 +248,14 @@ export const startMock = createServerFn({ method: "POST" })
       answers: { _meta: { preset_id: p.id, question_ids: chosen } },
     };
 
-    const res1 = await supabaseAdmin.from("attempts").insert(fullPayload as any).select("id").single();
-    if (!res1.error && res1.data) {
-      row = res1.data;
-    } else {
-      const basicPayload = {
-        user_id: userId,
-        mode: "mock",
-        exam_id: p.examId,
-        deadline,
-        status: "in_progress",
-        total_questions: chosen.length,
-        answers: { _meta: { preset_id: p.id, question_ids: chosen } },
-      };
-      const res2 = await supabaseAdmin.from("attempts").insert(basicPayload as any).select("id").single();
-      if (!res2.error && res2.data) {
-        row = res2.data;
-      } else {
-        throw new Error(res2.error?.message || "Could not start the test. Please try again.");
-      }
+    const { data: row, error } = await supabaseAdmin
+      .from("attempts")
+      .insert(attemptPayload)
+      .select("id")
+      .single();
+
+    if (error || !row) {
+      throw new Error(error?.message || "Could not start the test. Please try again.");
     }
 
     return { attemptId: row.id };
@@ -470,19 +446,15 @@ export const saveProgress = createServerFn({ method: "POST" })
     const events = [...((att.events as unknown[]) ?? []), ...data.events].slice(-500);
 
     // Update payload with canonical columns
-    const updateObj: Record<string, any> = {
-      answers: mergedAnswers,
+    const updateObj = {
+      answers: mergedAnswers as never,
       events: events as never,
+      statuses: validStatuses as never,
     };
-
-    // If statuses column exists in table, update it too
-    if ("statuses" in att) {
-      updateObj["statuses"] = validStatuses;
-    }
 
     await supabaseAdmin
       .from("attempts")
-      .update(updateObj as any)
+      .update(updateObj)
       .eq("id", data.id)
       .eq("status", "in_progress");
 

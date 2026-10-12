@@ -199,11 +199,12 @@ function ProfilePage() {
 
     // Fetch profile from Supabase table if available
     async function loadProfile() {
+      if (!user?.id) return;
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", user?.id)
+          .eq("id", user.id)
           .maybeSingle();
 
         if (!error && data) {
@@ -216,39 +217,43 @@ function ProfilePage() {
             setTargetExams(data.target_exams);
 
           if (data.exam_details) {
-            if (data.exam_details.target_year) setTargetYear(data.exam_details.target_year);
-            if (data.exam_details.stage) setPrepStage(data.exam_details.stage);
-            if (data.exam_details.target_rank) setTargetRank(data.exam_details.target_rank);
-            if (Array.isArray(data.exam_details.focus_subjects))
-              setFocusSubjects(data.exam_details.focus_subjects);
+            const ed: any = data.exam_details;
+            if (ed.target_year) setTargetYear(ed.target_year);
+            if (ed.stage) setPrepStage(ed.stage);
+            if (ed.target_rank) setTargetRank(ed.target_rank);
+            if (Array.isArray(ed.focus_subjects))
+              setFocusSubjects(ed.focus_subjects);
           }
 
           if (data.study_goals) {
-            if (data.study_goals.weekly_hours) setWeeklyHours(data.study_goals.weekly_hours);
-            if (data.study_goals.daily_hours) setDailyHours(data.study_goals.daily_hours);
-            if (Array.isArray(data.study_goals.preferred_days))
-              setPreferredDays(data.study_goals.preferred_days);
+            const sg: any = data.study_goals;
+            if (sg.weekly_hours) setWeeklyHours(sg.weekly_hours);
+            if (sg.daily_hours) setDailyHours(sg.daily_hours);
+            if (Array.isArray(sg.preferred_days))
+              setPreferredDays(sg.preferred_days);
           }
 
           if (data.learning_preferences) {
-            if (data.learning_preferences.language)
-              setPreferredLanguage(data.learning_preferences.language);
-            if (data.learning_preferences.theme) setAppTheme(data.learning_preferences.theme);
-            if (data.learning_preferences.practice_mode)
-              setPracticeMode(data.learning_preferences.practice_mode);
-            if (data.learning_preferences.difficulty)
-              setDifficultyPreference(data.learning_preferences.difficulty);
+            const lp: any = data.learning_preferences;
+            if (lp.language)
+              setPreferredLanguage(lp.language);
+            if (lp.theme) setAppTheme(lp.theme);
+            if (lp.practice_mode)
+              setPracticeMode(lp.practice_mode);
+            if (lp.difficulty)
+              setDifficultyPreference(lp.difficulty);
           }
 
           if (data.notification_preferences) {
-            if (typeof data.notification_preferences.study_reminders === "boolean")
-              setStudyReminders(data.notification_preferences.study_reminders);
-            if (typeof data.notification_preferences.test_updates === "boolean")
-              setTestUpdates(data.notification_preferences.test_updates);
-            if (typeof data.notification_preferences.new_material === "boolean")
-              setNewMaterial(data.notification_preferences.new_material);
-            if (typeof data.notification_preferences.personalized_tips === "boolean")
-              setPersonalizedTips(data.notification_preferences.personalized_tips);
+            const np: any = data.notification_preferences;
+            if (typeof np.study_reminders === "boolean")
+              setStudyReminders(np.study_reminders);
+            if (typeof np.test_updates === "boolean")
+              setTestUpdates(np.test_updates);
+            if (typeof np.new_material === "boolean")
+              setNewMaterial(np.new_material);
+            if (typeof np.personalized_tips === "boolean")
+              setPersonalizedTips(np.personalized_tips);
           }
         }
       } catch (err) {
@@ -258,11 +263,12 @@ function ProfilePage() {
 
     // Load attempts history
     async function loadAttempts() {
+      if (!user?.id) return;
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await supabase
           .from("attempts")
           .select("*")
-          .eq("user_id", user?.id)
+          .eq("user_id", user.id)
           .order("created_at", { ascending: false })
           .limit(50);
 
@@ -296,7 +302,7 @@ function ProfilePage() {
     loginUser(updatedUser, isAdmin);
 
     try {
-      await (supabase as any).from("profiles").upsert({
+      await supabase.from("profiles").upsert({
         id: user.id,
         avatar_url: newUrl,
         updated_at: new Date().toISOString(),
@@ -322,7 +328,7 @@ function ProfilePage() {
     loginUser(updatedUser, isAdmin);
 
     try {
-      await (supabase as any).from("profiles").upsert({
+      await supabase.from("profiles").upsert({
         id: user.id,
         avatar_url: null,
         updated_at: new Date().toISOString(),
@@ -356,7 +362,7 @@ function ProfilePage() {
       loginUser(updatedUser, isAdmin);
 
       try {
-        await (supabase as any).from("profiles").upsert({
+        await supabase.from("profiles").upsert({
           id: user.id,
           display_name: name,
           email,
@@ -402,7 +408,7 @@ function ProfilePage() {
       loginUser(updatedUser, isAdmin);
 
       try {
-        await (supabase as any).from("profiles").upsert({
+        await supabase.from("profiles").upsert({
           id: user.id,
           target_exams: targetExams,
           primary_exam: targetExams[0] || "KCET",
@@ -468,7 +474,7 @@ function ProfilePage() {
       }
 
       try {
-        await (supabase as any).from("profiles").upsert({
+        await supabase.from("profiles").upsert({
           id: user.id,
           study_goals: studyGoalsObj,
           learning_preferences: learningPreferencesObj,
@@ -546,7 +552,7 @@ function ProfilePage() {
   async function handleConfirmDelete() {
     try {
       if (user?.id) {
-        await (supabase as any).from("profiles").delete().eq("id", user.id);
+        await supabase.from("profiles").delete().eq("id", user.id);
       }
     } catch {}
     logout();

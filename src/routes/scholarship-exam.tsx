@@ -141,10 +141,11 @@ function Portal() {
     // Query canonical database profile from Supabase
     async function fetchCanonicalProfile() {
       try {
-        const { data, error } = await (supabase as any)
+        if (!user?.id) return;
+        const { data, error } = await supabase
           .from("profiles")
           .select("display_name, email, avatar_url, standard, target_exams, primary_exam")
-          .eq("id", user?.id)
+          .eq("id", user.id)
           .maybeSingle();
 
         if (!error && data) {
@@ -195,7 +196,7 @@ function Portal() {
 
       // Update database profile
       try {
-        await (supabase as any).from("profiles").upsert({
+        await supabase.from("profiles").upsert({
           id: user.id,
           avatar_url: uploadedUrl,
           display_name: studentName,
@@ -248,7 +249,7 @@ function Portal() {
 
       // Update database profile
       try {
-        await (supabase as any).from("profiles").upsert({
+        await supabase.from("profiles").upsert({
           id: user.id,
           display_name: trimmed,
           updated_at: new Date().toISOString(),
