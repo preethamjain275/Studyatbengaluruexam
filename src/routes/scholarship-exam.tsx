@@ -142,11 +142,22 @@ function Portal() {
     async function fetchCanonicalProfile() {
       try {
         if (!user?.id) return;
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from("profiles")
           .select("display_name, email, avatar_url, standard, target_exams, primary_exam")
           .eq("id", user.id)
           .maybeSingle();
+
+        // If target_exams or primary_exam do not exist in live schema, query core columns
+        if (error && (error.code === "42703" || error.code === "PGRST204")) {
+          const res = await supabase
+            .from("profiles")
+            .select("display_name, email, avatar_url, standard")
+            .eq("id", user.id)
+            .maybeSingle();
+          data = res.data ? { ...res.data, target_exams: null, primary_exam: null } : null;
+          error = res.error;
+        }
 
         if (!error && data) {
           if (data.display_name && data.display_name.trim()) {

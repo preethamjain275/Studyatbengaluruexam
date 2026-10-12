@@ -6,7 +6,17 @@
 -- 3. Announcements, App Settings, and Audit Logs tables with secure RLS
 -- ========================================================================
 
--- 1. Reconcile ATTEMPTS table with canonical metric columns
+-- 1. Reconcile ATTEMPTS table with canonical columns and metric attributes
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS track text DEFAULT '';
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS level text DEFAULT '';
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS preset_id text DEFAULT '';
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS question_ids uuid[] DEFAULT ARRAY[]::uuid[];
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS started_at timestamptz DEFAULT now();
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS submitted_at timestamptz;
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS statuses jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS max_score numeric;
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS percent numeric;
+ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS result jsonb DEFAULT '{}'::jsonb;
 ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS total_questions integer;
 ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS percentage numeric;
 ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS correct_count integer;

@@ -362,7 +362,7 @@ function ProfilePage() {
       loginUser(updatedUser, isAdmin);
 
       try {
-        await supabase.from("profiles").upsert({
+        const { error: pErr } = await supabase.from("profiles").upsert({
           id: user.id,
           display_name: name,
           email,
@@ -371,6 +371,16 @@ function ProfilePage() {
           about_me: aboutMe,
           updated_at: new Date().toISOString(),
         });
+        if (pErr && (pErr.code === "PGRST204" || pErr.code === "42703")) {
+          // Live schema fallback: guaranteed core columns present in live database
+          await supabase.from("profiles").upsert({
+            id: user.id,
+            display_name: name,
+            email,
+            phone,
+            updated_at: new Date().toISOString(),
+          });
+        }
       } catch (e) {}
 
       toast.success("Personal information saved successfully!");

@@ -72,21 +72,21 @@ export type Database = {
           exam_id: string
           id: string
           incorrect_count: number | null
-          level: string
+          level: string | null
           max_score: number | null
           mode: string
           percent: number | null
           percentage: number | null
-          preset_id: string
-          question_ids: string[]
+          preset_id: string | null
+          question_ids: string[] | null
           result: Json | null
           score: number | null
-          started_at: string
+          started_at: string | null
           status: string
-          statuses: Json
+          statuses: Json | null
           submitted_at: string | null
           total_questions: number | null
-          track: string
+          track: string | null
           unanswered_count: number | null
           user_id: string
         }
@@ -94,26 +94,26 @@ export type Database = {
           answers?: Json
           correct_count?: number | null
           created_at?: string
-          deadline: string
+          deadline?: string
           events?: Json
           exam_id: string
           id?: string
           incorrect_count?: number | null
-          level?: string
+          level?: string | null
           max_score?: number | null
           mode: string
           percent?: number | null
           percentage?: number | null
-          preset_id?: string
-          question_ids: string[]
+          preset_id?: string | null
+          question_ids?: string[] | null
           result?: Json | null
           score?: number | null
-          started_at?: string
+          started_at?: string | null
           status?: string
-          statuses?: Json
+          statuses?: Json | null
           submitted_at?: string | null
           total_questions?: number | null
-          track?: string
+          track?: string | null
           unanswered_count?: number | null
           user_id: string
         }

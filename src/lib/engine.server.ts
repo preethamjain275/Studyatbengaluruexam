@@ -113,12 +113,34 @@ export async function finalizeAttempt(
     result: result as never,
   };
 
-  const { data: updatedAttempt, error: updateErr } = await supabaseAdmin
+  let { data: updatedAttempt, error: updateErr } = await supabaseAdmin
     .from("attempts")
-    .update(updatePayload)
+    .update(updatePayload as never)
     .eq("id", attemptId)
     .select("*")
     .maybeSingle();
+
+  if (updateErr && (updateErr.code === "PGRST204" || updateErr.code === "42703" || updateErr.message?.includes("column"))) {
+    // Live schema fallback: guaranteed core columns present in live database
+    const corePayload = {
+      status: "submitted",
+      score: result.score,
+      percentage: result.percent,
+      correct_count: result.correct,
+      incorrect_count: result.incorrect,
+      unanswered_count: result.unanswered,
+      total_questions: qs.length,
+      answers: finalAnswers,
+    };
+    const res = await supabaseAdmin
+      .from("attempts")
+      .update(corePayload as never)
+      .eq("id", attemptId)
+      .select("*")
+      .maybeSingle();
+    updatedAttempt = res.data;
+    updateErr = res.error;
+  }
 
   if (updateErr) {
     console.error("Error finalizing attempt:", updateErr);

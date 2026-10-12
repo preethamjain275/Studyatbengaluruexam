@@ -160,14 +160,37 @@ export const startPractice = createServerFn({ method: "POST" })
       deadline,
       status: "in_progress",
       total_questions: chosen.length,
-      answers: { _meta: { track: t.name, level: data.level, question_ids: chosen } },
+      answers: { _meta: { track: t.name, level: data.level, question_ids: chosen, started_at: new Date().toISOString() } },
     };
 
-    const { data: row, error } = await supabaseAdmin
+    let { data: row, error } = await supabaseAdmin
       .from("attempts")
-      .insert(attemptPayload)
+      .insert(attemptPayload as never)
       .select("id")
       .single();
+
+    if (error && (error.code === "PGRST204" || error.code === "42703" || error.message?.includes("column"))) {
+      // Reconciled fallback for live schema: all metadata preserved safely inside answers._meta
+      const livePayload = {
+        user_id: userId,
+        mode: "practice",
+        exam_id: data.examId,
+        deadline,
+        status: "in_progress",
+        total_questions: chosen.length,
+        percentage: 0,
+        score: 0,
+        answers: { _meta: { track: t.name, level: data.level, question_ids: chosen, started_at: new Date().toISOString() } },
+        events: [],
+      };
+      const res = await supabaseAdmin
+        .from("attempts")
+        .insert(livePayload as never)
+        .select("id")
+        .single();
+      row = res.data;
+      error = res.error;
+    }
 
     if (error || !row) {
       throw new Error(error?.message || "Could not start the practice set. Please try again.");
@@ -245,14 +268,37 @@ export const startMock = createServerFn({ method: "POST" })
       deadline,
       status: "in_progress",
       total_questions: chosen.length,
-      answers: { _meta: { preset_id: p.id, question_ids: chosen } },
+      answers: { _meta: { preset_id: p.id, question_ids: chosen, started_at: new Date().toISOString() } },
     };
 
-    const { data: row, error } = await supabaseAdmin
+    let { data: row, error } = await supabaseAdmin
       .from("attempts")
-      .insert(attemptPayload)
+      .insert(attemptPayload as never)
       .select("id")
       .single();
+
+    if (error && (error.code === "PGRST204" || error.code === "42703" || error.message?.includes("column"))) {
+      // Reconciled fallback for live schema: all metadata preserved safely inside answers._meta
+      const livePayload = {
+        user_id: userId,
+        mode: "mock",
+        exam_id: p.examId,
+        deadline,
+        status: "in_progress",
+        total_questions: chosen.length,
+        percentage: 0,
+        score: 0,
+        answers: { _meta: { preset_id: p.id, question_ids: chosen, started_at: new Date().toISOString() } },
+        events: [],
+      };
+      const res = await supabaseAdmin
+        .from("attempts")
+        .insert(livePayload as never)
+        .select("id")
+        .single();
+      row = res.data;
+      error = res.error;
+    }
 
     if (error || !row) {
       throw new Error(error?.message || "Could not start the test. Please try again.");

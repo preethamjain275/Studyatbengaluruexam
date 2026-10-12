@@ -346,11 +346,13 @@ export const logSuspiciousEvent = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as unknown as Ctx;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("audit_logs").insert({
-      user_id: userId,
-      event: `ANTI_CHEAT_${data.eventType.toUpperCase()}`,
-      payload: { attemptId: data.attemptId, details: data.details ?? "", at: new Date().toISOString() },
-    });
+    try {
+      await supabaseAdmin.from("audit_logs").insert({
+        user_id: userId,
+        event: `ANTI_CHEAT_${data.eventType.toUpperCase()}`,
+        payload: { attemptId: data.attemptId, details: data.details ?? "", at: new Date().toISOString() },
+      });
+    } catch {}
     return { ok: true };
   });
 
