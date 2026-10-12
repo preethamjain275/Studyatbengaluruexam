@@ -29,6 +29,14 @@ export const Route = createFileRoute("/auth")({
 
 type AuthMode = "in" | "up" | "forgot" | "reset";
 
+function formatAuthError(msg?: string): string {
+  if (!msg) return "Authentication failed. Please verify your details.";
+  if (msg.toLowerCase().includes("invalid api key")) {
+    return "Supabase API key is unconfigured or invalid. Please configure your real Publishable/Anon key in .env (VITE_SUPABASE_PUBLISHABLE_KEY) from the Supabase Dashboard.";
+  }
+  return msg;
+}
+
 function AuthPage() {
   const { next, mode: searchMode } = Route.useSearch();
   const navigate = useNavigate();
@@ -79,7 +87,7 @@ function AuthPage() {
         // Genuine Supabase Auth Sign In
         const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (error || !data?.user) {
-          setMsg({ text: error?.message || "Invalid email or password. Please verify your credentials.", type: "error" });
+          setMsg({ text: formatAuthError(error?.message), type: "error" });
           setBusy(false);
           return;
         }
@@ -121,7 +129,7 @@ function AuthPage() {
         });
 
         if (error) {
-          setMsg({ text: error.message || "Account creation failed.", type: "error" });
+          setMsg({ text: formatAuthError(error.message), type: "error" });
           setBusy(false);
           return;
         }
@@ -182,6 +190,23 @@ function AuthPage() {
     } catch (err) {
       setMsg({ text: (err as Error).message || "An error occurred.", type: "error" });
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    try {
+      setBusy(true);
+      const targetDestination = sessionStorage.getItem("auth-next") || safeNext(next);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth?next=${encodeURIComponent(targetDestination)}`,
+        },
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setMsg({ text: formatAuthError(err.message), type: "error" });
       setBusy(false);
     }
   }
@@ -417,29 +442,44 @@ function AuthPage() {
               "Update Password"
             )}
           </button>
-        </form>
 
-        {/* Direct Admin Access Card */}
-        {/* Direct Admin Access Link */}
-        {mode === "in" && (
-          <div className="mt-4 p-3.5 rounded-xl bg-primary/5 border border-primary/20 text-center">
-            <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-primary mb-1">
-              <ShieldCheck className="h-4 w-4" /> Platform Admin Portal
-            </div>
-            <p className="text-[11px] text-muted-foreground mb-2.5">
-              Authorized administrator? Authenticate via the dedicated admin login portal.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                navigate({ to: "/admin-login" });
-              }}
-              className="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-xs"
-            >
-              <ShieldCheck className="h-3.5 w-3.5" /> Admin Authentication Login (/admin-login)
-            </button>
-          </div>
-        )}
+          {(mode === "in" || mode === "up") && (
+            <>
+              <div className="relative my-3 flex items-center justify-center">
+                <div className="border-t border-border w-full" />
+                <span className="bg-card px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground absolute">
+                  or
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleGoogleSignIn}
+                className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-border bg-background py-2.5 text-xs font-semibold hover:bg-accent transition shadow-xs"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                Continue with Google
+              </button>
+            </>
+          )}
+        </form>
 
         {/* Footer Navigation Links */}
         <div className="mt-5 border-t pt-4 text-center text-xs">
