@@ -57,22 +57,17 @@ function parseAllQuestions(sqlText) {
 
 async function runSeed() {
   const SUPABASE_URL = process.env.SUPABASE_URL || "https://fbyvydtakpcklthvmdrk.supabase.co";
-  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "sb_secret_zt29oiVvf3Dcvsje_5BYlQ_s3GT5cZn";
+  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SUPABASE_KEY) {
+    console.error("FATAL ERROR: SUPABASE_SERVICE_ROLE_KEY environment variable is required to run the seed script.");
+    process.exit(1);
+  }
 
   console.log("Reading ncert-bank-2026.sql...");
   const sql = fs.readFileSync("./scripts/data/ncert-bank-2026.sql", "utf8");
   const qs = parseAllQuestions(sql);
   console.log(`Parsed all ${qs.length} questions.`);
-
-  // First clear old questions to avoid duplicates and re-insert cleanly
-  console.log("Clearing and re-inserting all questions...");
-  await fetch(`${SUPABASE_URL}/rest/v1/questions?id=neq.00000000-0000-0000-0000-000000000000`, {
-    method: "DELETE",
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`
-    }
-  });
 
   let inserted = 0;
   const batchSize = 40;

@@ -155,10 +155,7 @@ export function TutorWidget() {
 
     try {
       const { data } = await supabase.auth.getSession();
-      let authToken = data.session?.access_token || "";
-      if (!authToken && user) {
-        authToken = `local:${btoa(encodeURIComponent(JSON.stringify(user)))}`;
-      }
+      const authToken = data.session?.access_token || "";
 
       if (!authToken) {
         throw new Error("Please sign in to your student account to ask Buddy for hints.");

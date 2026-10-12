@@ -3,12 +3,8 @@ import { useEffect, useState } from "react";
 import { ShieldCheck, Lock, Mail, Eye, EyeOff, Loader2, ArrowLeft, KeyRound, AlertCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { Logo } from "@/components/site/Logo";
-
-const ADMIN_PRIMARY_EMAIL = "preethamjainm6324@gmail.com";
-const ADMIN_PRIMARY_PASSWORD = "Preetham#2026!Admin";
-
+import { toast } from "sonner";
 export const Route = createFileRoute("/admin-login")({
   head: () => ({
     meta: [
@@ -30,13 +26,12 @@ function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // If already logged in as admin, redirect directly to /admin
+  // If already logged in as verified admin, redirect directly to /admin
   useEffect(() => {
-    const isLocalAdmin = typeof window !== "undefined" && localStorage.getItem("study_admin_active") === "true";
-    if (isAdmin || isLocalAdmin) {
+    if (isAdmin && user) {
       navigate({ to: "/admin", replace: true });
     }
-  }, [isAdmin, navigate]);
+  }, [isAdmin, user, navigate]);
 
   async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -46,7 +41,7 @@ function AdminLoginPage() {
     const cleanPassword = password.trim();
 
     if (!cleanEmail) {
-      setErrorMsg("Please enter your admin mail ID.");
+      setErrorMsg("Please enter your admin email address.");
       return;
     }
     if (!cleanPassword) {
@@ -57,87 +52,36 @@ function AdminLoginPage() {
     setLoading(true);
 
     try {
-      // 1. Direct verify against known Admin Credentials
-      const isKnownAdminEmail =
-        cleanEmail === ADMIN_PRIMARY_EMAIL ||
-        cleanEmail === "admin@studyatbangalore.in" ||
-        cleanEmail === "admin@studyatbengaluru.in" ||
-        cleanEmail.includes("preetham");
-
-      const isMatchingAdminPass =
-        cleanPassword === ADMIN_PRIMARY_PASSWORD ||
-        cleanPassword === "admin123" ||
-        cleanPassword === "Preetham#2026";
-
-      if (isKnownAdminEmail && isMatchingAdminPass) {
-        const adminSession = {
-          id: "admin-preetham-6324",
-          email: cleanEmail,
-          user_metadata: {
-            full_name: "Preetham Jain",
-            role: "super_admin",
-          },
-        };
-
-        loginUser(adminSession, true);
-        toast.success("Admin authentication successful! Entering Admin Portal…");
-        setTimeout(() => {
-          window.location.href = "/admin";
-        }, 150);
-        return;
-      }
-
-      // 2. Try Supabase Auth for database-authenticated admin accounts
+      // 1. Authenticate with Supabase Auth
       const { data: supaAuth, error: supaErr } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password: cleanPassword,
       });
 
-      if (!supaErr && supaAuth?.user) {
-        const adminSession = {
-          id: supaAuth.user.id,
-          email: supaAuth.user.email || cleanEmail,
-          user_metadata: {
-            full_name: (supaAuth.user.user_metadata as Record<string, any>)?.[
-              "full_name"
-            ] || "Platform Admin",
-            role: "super_admin",
-            ...supaAuth.user.user_metadata,
-          },
-        };
-
-        loginUser(adminSession, true);
-        toast.success("Admin authentication successful! Entering Admin Portal…");
-        setTimeout(() => {
-          window.location.href = "/admin";
-        }, 150);
+      if (supaErr || !supaAuth?.user) {
+        setErrorMsg("Authentication failed. Invalid administrator credentials.");
+        toast.error("Invalid administrator credentials. Please check your email and password.");
         return;
       }
 
-      // 3. Fallback: if email matches primary admin email with password length >= 6
-      if (isKnownAdminEmail && cleanPassword.length >= 6) {
-        const adminSession = {
-          id: "admin-preetham-6324",
-          email: cleanEmail,
-          user_metadata: {
-            full_name: "Preetham Jain",
-            role: "super_admin",
-          },
-        };
+      // 2. Authoritative server-side verification of administrative role
+      const { getAdminStatus } = await import("@/lib/admin.functions");
+      const status = await getAdminStatus();
 
-        loginUser(adminSession, true);
-        toast.success("Admin identity verified! Entering Admin Portal…");
-        setTimeout(() => {
-          window.location.href = "/admin";
-        }, 150);
+      if (!status.isAdmin) {
+        await supabase.auth.signOut();
+        setErrorMsg("Access denied. This account does not possess administrative privileges.");
+        toast.error("Access denied. Insufficient administrative privileges.");
         return;
       }
 
-      // If credentials do not match
-      setErrorMsg("Authentication failed. Unauthorized admin mail ID or incorrect password.");
-      toast.error("Invalid admin credentials. Please verify your mail ID and password.");
+      loginUser(supaAuth.user, true);
+      toast.success("Admin authentication successful! Entering Admin Portal…");
+      setTimeout(() => {
+        window.location.href = "/admin";
+      }, 150);
     } catch (err: any) {
-      setErrorMsg(err?.message || "An unexpected error occurred during authentication.");
+      setErrorMsg(err?.message || "An unexpected error occurred during administrator authentication.");
     } finally {
       setLoading(false);
     }

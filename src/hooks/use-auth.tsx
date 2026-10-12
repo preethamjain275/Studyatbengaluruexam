@@ -52,6 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session?.user) {
         setUser(data.session.user);
         localStorage.setItem(SESSION_KEY, JSON.stringify(data.session.user));
+        if (data.session.access_token) {
+          document.cookie = `study_token=${encodeURIComponent(data.session.access_token)}; path=/; max-age=2592000; SameSite=Lax`;
+        }
       }
     });
 
@@ -59,15 +62,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         setUser(session.user);
         localStorage.setItem(SESSION_KEY, JSON.stringify(session.user));
-      } else if (event === "SIGNED_OUT") {
-        const explicit = localStorage.getItem("study_explicit_logout");
-        if (explicit) {
-          setUser(null);
-          setIsAdmin(false);
-          localStorage.removeItem(SESSION_KEY);
-          localStorage.removeItem(ADMIN_KEY);
-          localStorage.removeItem("study_explicit_logout");
+        if (session.access_token) {
+          document.cookie = `study_token=${encodeURIComponent(session.access_token)}; path=/; max-age=2592000; SameSite=Lax`;
         }
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+        setIsAdmin(false);
+        document.cookie = "study_token=; path=/; max-age=0; SameSite=Lax";
+        document.cookie = "study_user_session=; path=/; max-age=0; SameSite=Lax";
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(ADMIN_KEY);
       }
     });
 

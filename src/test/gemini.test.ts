@@ -75,6 +75,28 @@ describe("Gemini Server Service - Safe Error Sanitization", () => {
   });
 });
 
+vi.mock("@supabase/supabase-js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@supabase/supabase-js")>();
+  return {
+    ...actual,
+    createClient: vi.fn((url: string, key: string, opts?: any) => {
+      const client = actual.createClient(url, key, opts);
+      return {
+        ...client,
+        auth: {
+          ...client.auth,
+          getUser: vi.fn(async (token: string) => {
+            if (token === "valid-test-token") {
+              return { data: { user: { id: "student-1", email: "student@test.com" } }, error: null };
+            }
+            return { data: { user: null }, error: new Error("Invalid token") };
+          }),
+        },
+      };
+    }),
+  };
+});
+
 describe("Buddy AI Tutor Server Route Contract", () => {
   it("rejects unauthenticated requests with 401", async () => {
     const { handleTutor } = await import("@/lib/tutor.server");
@@ -90,7 +112,7 @@ describe("Buddy AI Tutor Server Route Contract", () => {
     expect(body.error).toContain("Please sign in");
   });
 
-  it("rejects requests with empty messages with 400", async () => {
+  it("rejects spoofed local: tokens with 401", async () => {
     const { handleTutor } = await import("@/lib/tutor.server");
     const localToken = `local:${btoa(encodeURIComponent(JSON.stringify({ id: "student-1", email: "student@test.com" })))}`;
     const req = new Request("http://localhost:8080/api/tutor", {
@@ -98,6 +120,21 @@ describe("Buddy AI Tutor Server Route Contract", () => {
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${localToken}`,
+      },
+      body: JSON.stringify({ messages: [] }),
+    });
+
+    const res = await handleTutor(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects requests with empty messages with 400 when authenticated", async () => {
+    const { handleTutor } = await import("@/lib/tutor.server");
+    const req = new Request("http://localhost:8080/api/tutor", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer valid-test-token",
       },
       body: JSON.stringify({ messages: [] }),
     });

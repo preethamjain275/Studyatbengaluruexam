@@ -1,9 +1,47 @@
 -- ========================================================================
--- Study at Bangalore - Complete Supabase Setup & Repair Script
+-- Study at Bangalore - Hardened Supabase Setup & Schema Script
 -- Run this script in your Supabase Project -> SQL Editor -> Click 'Run'
+-- Enforces Row Level Security (RLS) across all tables, isolates student data,
+-- hides question answer keys, and requires verified roles for admin functions.
 -- ========================================================================
 
--- 1. Create / Update PROFILES table for student accounts
+-- 1. Helper function to check user roles in RLS
+CREATE OR REPLACE FUNCTION public.has_role(_user_id text, _role text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id::text = _user_id
+      AND (
+        role::text = _role
+        OR (_role = 'admin' AND role::text = 'super_admin')
+      )
+  );
+$$;
+
+-- Overload for uuid user_id
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id::text = _user_id::text
+      AND (
+        role::text = _role
+        OR (_role = 'admin' AND role::text = 'super_admin')
+      )
+  );
+$$;
+
+-- 2. Create / Update PROFILES table for student accounts
 CREATE TABLE IF NOT EXISTS public.profiles (
   id text PRIMARY KEY,
   display_name text,
@@ -13,6 +51,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   email text,
   phone text,
   avatar_url text,
+  about_me text,
+  location text,
+  primary_exam text,
+  exam_details jsonb DEFAULT '{}'::jsonb,
+  study_goals jsonb DEFAULT '{}'::jsonb,
+  learning_preferences jsonb DEFAULT '{}'::jsonb,
+  notification_preferences jsonb DEFAULT '{}'::jsonb,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -27,16 +72,32 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS study_goals jsonb DEFAULT '
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS learning_preferences jsonb DEFAULT '{}'::jsonb;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notification_preferences jsonb DEFAULT '{}'::jsonb;
 
--- Enable RLS and create permissive policies for profiles
+-- Enable RLS and owner-isolated policies for profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Public profiles access') THEN
-    CREATE POLICY "Public profiles access" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "Public profiles access" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles select policy" ON public.profiles;
+CREATE POLICY "Profiles select policy" ON public.profiles
+  FOR SELECT TO authenticated
+  USING (id = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin'));
 
--- 1a. Storage bucket for user profile avatars
+DROP POLICY IF EXISTS "Profiles insert policy" ON public.profiles;
+CREATE POLICY "Profiles insert policy" ON public.profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (id = auth.uid()::text);
+
+DROP POLICY IF EXISTS "Profiles update policy" ON public.profiles;
+CREATE POLICY "Profiles update policy" ON public.profiles
+  FOR UPDATE TO authenticated
+  USING (id = auth.uid()::text)
+  WITH CHECK (id = auth.uid()::text);
+
+DROP POLICY IF EXISTS "Profiles delete policy" ON public.profiles;
+CREATE POLICY "Profiles delete policy" ON public.profiles
+  FOR DELETE TO authenticated
+  USING (id = auth.uid()::text OR public.has_role(auth.uid()::text, 'super_admin'));
+
+-- 3. Storage bucket for user profile avatars
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'avatars',
@@ -51,12 +112,32 @@ ON CONFLICT (id) DO UPDATE SET
   allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp'];
 
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND schemaname = 'storage' AND policyname = 'Public avatars access') THEN
-    CREATE POLICY "Public avatars access" ON storage.objects FOR ALL USING (bucket_id = 'avatars') WITH CHECK (bucket_id = 'avatars');
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'objects') THEN
+    DROP POLICY IF EXISTS "Public avatars access" ON storage.objects;
+    DROP POLICY IF EXISTS "Avatars read policy" ON storage.objects;
+    CREATE POLICY "Avatars read policy" ON storage.objects
+      FOR SELECT TO public
+      USING (bucket_id = 'avatars');
+
+    DROP POLICY IF EXISTS "Avatars insert policy" ON storage.objects;
+    CREATE POLICY "Avatars insert policy" ON storage.objects
+      FOR INSERT TO authenticated
+      WITH CHECK (bucket_id = 'avatars');
+
+    DROP POLICY IF EXISTS "Avatars update policy" ON storage.objects;
+    CREATE POLICY "Avatars update policy" ON storage.objects
+      FOR UPDATE TO authenticated
+      USING (bucket_id = 'avatars' AND (owner::text = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin')))
+      WITH CHECK (bucket_id = 'avatars' AND (owner::text = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin')));
+
+    DROP POLICY IF EXISTS "Avatars delete policy" ON storage.objects;
+    CREATE POLICY "Avatars delete policy" ON storage.objects
+      FOR DELETE TO authenticated
+      USING (bucket_id = 'avatars' AND (owner::text = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin')));
   END IF;
 END $$;
 
--- 1b. Create ANNOUNCEMENTS table for website popups
+-- 4. Create ANNOUNCEMENTS table for website notifications
 CREATE TABLE IF NOT EXISTS public.announcements (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
@@ -68,16 +149,20 @@ CREATE TABLE IF NOT EXISTS public.announcements (
 );
 
 ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'announcements' AND policyname = 'Public announcements read') THEN
-    CREATE POLICY "Public announcements read" ON public.announcements FOR SELECT USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'announcements' AND policyname = 'Public announcements write') THEN
-    CREATE POLICY "Public announcements write" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "Public announcements read" ON public.announcements;
+DROP POLICY IF EXISTS "Public announcements write" ON public.announcements;
+DROP POLICY IF EXISTS "Announcements select policy" ON public.announcements;
+CREATE POLICY "Announcements select policy" ON public.announcements
+  FOR SELECT TO public
+  USING (true);
 
--- 1c. Create APP_SETTINGS table for configurable mastery targets
+DROP POLICY IF EXISTS "Announcements admin write policy" ON public.announcements;
+CREATE POLICY "Announcements admin write policy" ON public.announcements
+  FOR ALL TO authenticated
+  USING (public.has_role(auth.uid()::text, 'admin'))
+  WITH CHECK (public.has_role(auth.uid()::text, 'admin'));
+
+-- 5. Create APP_SETTINGS table for configurable targets
 CREATE TABLE IF NOT EXISTS public.app_settings (
   key text PRIMARY KEY,
   value jsonb NOT NULL,
@@ -85,34 +170,66 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
 );
 
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'app_settings' AND policyname = 'Public app_settings access') THEN
-    CREATE POLICY "Public app_settings access" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "Public app_settings access" ON public.app_settings;
+DROP POLICY IF EXISTS "AppSettings select policy" ON public.app_settings;
+CREATE POLICY "AppSettings select policy" ON public.app_settings
+  FOR SELECT TO public
+  USING (true);
 
--- 2. Create / Update USER_ROLES table
+DROP POLICY IF EXISTS "AppSettings admin write policy" ON public.app_settings;
+CREATE POLICY "AppSettings admin write policy" ON public.app_settings
+  FOR ALL TO authenticated
+  USING (public.has_role(auth.uid()::text, 'admin'))
+  WITH CHECK (public.has_role(auth.uid()::text, 'admin'));
+
+-- 6. Create USER_ROLES table with strict authorization
 CREATE TABLE IF NOT EXISTS public.user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id text NOT NULL,
   role text NOT NULL,
-  created_at timestamp with time zone DEFAULT now()
+  created_at timestamp with time zone DEFAULT now(),
+  UNIQUE (user_id, role)
 );
 
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public user_roles read" ON public.user_roles;
+DROP POLICY IF EXISTS "Users read own roles" ON public.user_roles;
+CREATE POLICY "Users read own roles" ON public.user_roles
+  FOR SELECT TO authenticated
+  USING (user_id::text = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin'));
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_roles' AND policyname = 'Public user_roles read') THEN
-    CREATE POLICY "Public user_roles read" ON public.user_roles FOR SELECT USING (true);
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "Super admins manage roles" ON public.user_roles;
+CREATE POLICY "Super admins manage roles" ON public.user_roles
+  FOR ALL TO authenticated
+  USING (public.has_role(auth.uid()::text, 'super_admin'))
+  WITH CHECK (public.has_role(auth.uid()::text, 'super_admin'));
 
--- Add Preetham Jain as super_admin
-INSERT INTO public.user_roles (user_id, role)
-VALUES ('admin-preetham-6324', 'super_admin')
-ON CONFLICT DO NOTHING;
+-- Purge any synthetic backdoor accounts from user_roles
+DELETE FROM public.user_roles WHERE user_id = 'admin-preetham-6324';
 
--- 3. Upgrade ATTEMPTS table with practice and mock test columns
+-- 7. Upgrade ATTEMPTS table with student isolation policies
+CREATE TABLE IF NOT EXISTS public.attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id text NOT NULL,
+  mode text NOT NULL,
+  exam_id text NOT NULL,
+  track text,
+  level text,
+  preset_id text,
+  question_ids uuid[] DEFAULT ARRAY[]::uuid[],
+  started_at timestamp with time zone DEFAULT now(),
+  submitted_at timestamp with time zone,
+  deadline timestamp with time zone,
+  status text DEFAULT 'in_progress',
+  answers jsonb DEFAULT '{}'::jsonb,
+  statuses jsonb DEFAULT '{}'::jsonb,
+  result jsonb DEFAULT '{}'::jsonb,
+  score numeric,
+  max_score numeric,
+  percent numeric,
+  created_at timestamp with time zone DEFAULT now()
+);
+
 ALTER TABLE public.attempts 
   ADD COLUMN IF NOT EXISTS track text,
   ADD COLUMN IF NOT EXISTS level text,
@@ -127,20 +244,56 @@ ALTER TABLE public.attempts
 
 ALTER TABLE public.attempts ENABLE ROW LEVEL SECURITY;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attempts' AND policyname = 'Attempts access') THEN
-    CREATE POLICY "Attempts access" ON public.attempts FOR ALL USING (true) WITH CHECK (true);
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "Attempts access" ON public.attempts;
+DROP POLICY IF EXISTS "Attempts select policy" ON public.attempts;
+CREATE POLICY "Attempts select policy" ON public.attempts
+  FOR SELECT TO authenticated
+  USING (user_id::text = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin'));
 
--- 4. Enable public read for QUESTIONS so practice questions load instantly
-ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Attempts insert policy" ON public.attempts;
+CREATE POLICY "Attempts insert policy" ON public.attempts
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id::text = auth.uid()::text);
 
+DROP POLICY IF EXISTS "Attempts update policy" ON public.attempts;
+CREATE POLICY "Attempts update policy" ON public.attempts
+  FOR UPDATE TO authenticated
+  USING (user_id::text = auth.uid()::text)
+  WITH CHECK (user_id::text = auth.uid()::text);
+
+DROP POLICY IF EXISTS "Attempts delete policy" ON public.attempts;
+CREATE POLICY "Attempts delete policy" ON public.attempts
+  FOR DELETE TO authenticated
+  USING (user_id::text = auth.uid()::text OR public.has_role(auth.uid()::text, 'admin'));
+
+-- 8. QUESTIONS table security (Column-level grants: hide correct and explanation)
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'questions' AND policyname = 'Questions read policy') THEN
-    CREATE POLICY "Questions read policy" ON public.questions FOR SELECT USING (true);
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'questions') THEN
+    ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
+
+    -- Revoke all open access
+    REVOKE ALL ON public.questions FROM public, anon, authenticated;
+
+    -- Grant SELECT only on student-facing safe columns (excluding correct, explanation)
+    GRANT SELECT (id, exam_ids, subject, chapter, topic, difficulty, qtype, body, options, source, source_year, is_previous_year, verification_status)
+      ON public.questions TO authenticated, anon;
+
+    -- Grant full privileges to service role
+    GRANT ALL ON public.questions TO service_role;
+
+    DROP POLICY IF EXISTS "Questions read policy" ON public.questions;
+    DROP POLICY IF EXISTS "Questions verified select policy" ON public.questions;
+    CREATE POLICY "Questions verified select policy" ON public.questions
+      FOR SELECT TO public
+      USING (verification_status = 'verified' OR public.has_role(auth.uid()::text, 'admin'));
+
+    DROP POLICY IF EXISTS "Questions admin all policy" ON public.questions;
+    CREATE POLICY "Questions admin all policy" ON public.questions
+      FOR ALL TO authenticated
+      USING (public.has_role(auth.uid()::text, 'admin'))
+      WITH CHECK (public.has_role(auth.uid()::text, 'admin'));
   END IF;
 END $$;
 
 -- Done!
-SELECT 'Supabase setup completed successfully!' AS status;
+SELECT 'Supabase setup and security hardening completed successfully!' AS status;

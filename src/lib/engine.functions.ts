@@ -371,8 +371,17 @@ export const getAttempt = createServerFn({ method: "GET" })
         .map((id) => byId.get(id))
         .filter(Boolean)
         .map((q: any) => ({
-          ...q,
-          options: shuffleOptions(q.options as { id: string; text: string }[], att.id + q.id),
+          id: q.id,
+          subject: q.subject,
+          chapter: q.chapter,
+          topic: q.topic,
+          difficulty: q.difficulty,
+          qtype: q.qtype,
+          body: q.body || q.text || "",
+          options: shuffleOptions((q.options as { id: string; text: string }[]) || [], att.id + q.id),
+          source: q.source,
+          source_year: q.source_year,
+          is_previous_year: q.is_previous_year,
         })),
       serverNow: Date.now(),
     };
@@ -556,11 +565,20 @@ export const getResult = createServerFn({ method: "GET" })
     }
 
     const questions = questionIds.map((id) => byId.get(id)).filter(Boolean).map((q: any) => ({
-      ...q,
+      id: q.id,
+      subject: q.subject,
+      chapter: q.chapter,
+      topic: q.topic,
+      difficulty: q.difficulty,
+      qtype: q.qtype,
+      body: q.body || q.text || "",
+      options: shuffleOptions((q.options as { id: string; text: string }[]) || [], att.id + q.id),
+      source: q.source,
+      source_year: q.source_year,
+      is_previous_year: q.is_previous_year,
       solution_steps: [],
-      options: shuffleOptions(q.options as { id: string; text: string }[], att.id + q.id),
       correct: showSolutions ? (q.correct as string | string[] | { value: number; tolerance?: number }) : null,
-      explanation: showSolutions ? q.explanation : "",
+      explanation: showSolutions ? (q.explanation || "") : "",
     }));
 
     let scoredResult = (att.result || rawAnswers?.["_result"]) as import("@/lib/engine/scoring").AttemptResult | undefined;

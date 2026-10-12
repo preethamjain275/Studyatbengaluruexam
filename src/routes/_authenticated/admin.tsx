@@ -79,25 +79,16 @@ function AdminPage() {
   const [tab, setTab] = useState<"bank" | "students" | "exams" | "roles" | "analytics" | "import" | "predict" | "settings" | "announcements">("bank");
 
   useEffect(() => {
-    const isLocalAdmin = typeof window !== "undefined" && localStorage.getItem("study_admin_active") === "true";
-    if (isLocalAdmin) {
-      setS({ isAdmin: true, adminExists: true });
-      return;
-    }
     status()
       .then((res) => {
-        if (!res.isAdmin && !isLocalAdmin) {
+        if (!res.isAdmin) {
           navigate({ to: "/admin-login", replace: true });
         } else {
           setS(res);
         }
       })
       .catch(() => {
-        if (!isLocalAdmin) {
-          navigate({ to: "/admin-login", replace: true });
-        } else {
-          setS({ isAdmin: true, adminExists: true });
-        }
+        navigate({ to: "/admin-login", replace: true });
       });
   }, [status, navigate]);
 
@@ -204,22 +195,6 @@ function Bank() {
   const [previewItem, setPreviewItem] = useState<Row | null>(null);
   const [dupResult, setDupResult] = useState<string | null>(null);
 
-  const fallbackLocalLoad = () => {
-    import("@/data/questions-bank").then(({ QUESTIONS_BANK }) => {
-      let pool = [...QUESTIONS_BANK];
-      if (f.exam) pool = pool.filter((q) => q.exam_ids?.includes(f.exam));
-      if (f.subject) pool = pool.filter((q) => q.subject.toLowerCase() === f.subject.toLowerCase());
-      if (f.difficulty) pool = pool.filter((q) => q.difficulty === f.difficulty);
-      if (f.status) pool = pool.filter((q) => (q.verification_status || "verified") === f.status);
-      if (f.q) {
-        const query = f.q.toLowerCase();
-        pool = pool.filter((q) => q.body.toLowerCase().includes(query) || q.chapter.toLowerCase().includes(query));
-      }
-      const start = f.page * 25;
-      setData({ rows: pool.slice(start, start + 25) as any, count: pool.length });
-    });
-  };
-
   const load = () => {
     list({
       data: {
@@ -232,23 +207,17 @@ function Bank() {
       },
     })
       .then((d) => {
-        if (d && (d as any).rows && (d as any).rows.length > 0) {
+        if (d && (d as any).rows) {
           setData(d as never);
-        } else {
-          fallbackLocalLoad();
         }
       })
-      .catch(() => {
-        fallbackLocalLoad();
+      .catch((err) => {
+        toast.error("Failed to load questions from server: " + (err?.message || "Unknown error"));
       });
   };
 
   useEffect(() => {
     load();
-    const timer = setTimeout(() => {
-      fallbackLocalLoad();
-    }, 400);
-    return () => clearTimeout(timer);
   }, [f]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

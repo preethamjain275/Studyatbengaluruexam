@@ -29,14 +29,13 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
-function createSupabaseAdminClient() {
+export function createSupabaseAdminClient() {
   const SUPABASE_URL = process.env['SUPABASE_URL'] || 'https://fbyvydtakpcklthvmdrk.supabase.co';
-  const SUPABASE_SERVICE_ROLE_KEY =
-    process.env['SUPABASE_SERVICE_ROLE_KEY'] || 'sb_secret_zt29oiVvf3Dcvsje_5BYlQ_s3GT5cZn';
+  const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
 
-  if (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_SERVICE_ROLE_KEY']) {
-    console.warn(
-      '[Supabase Admin] Warning: SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY not set. Using local development fallback.',
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      '[Supabase Admin] Error: SUPABASE_SERVICE_ROLE_KEY environment variable is required for administrative operations.'
     );
   }
 

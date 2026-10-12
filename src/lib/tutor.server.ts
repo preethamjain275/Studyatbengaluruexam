@@ -24,34 +24,28 @@ export async function handleTutor(request: Request) {
   let userId = "student-user";
   let userEmail = "student@studyatbangalore.in";
 
-  // Validate local-session or Supabase access token
+  // Enforce genuine Supabase authentication (fail closed, reject spoofed local tokens)
   if (token.startsWith("local:")) {
-    try {
-      const parsed = JSON.parse(decodeURIComponent(atob(token.slice(6))));
-      userId = parsed.id || parsed.email || "student-user";
-      userEmail = parsed.email || userEmail;
-    } catch {
-      return Response.json({ error: "Invalid session token. Please sign in again." }, { status: 401 });
+    return Response.json({ error: "Invalid session token. Please sign in." }, { status: 401 });
+  }
+
+  const supabaseUrl =
+    process.env["SUPABASE_URL"] || "https://fbyvydtakpcklthvmdrk.supabase.co";
+  const supabaseKey =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] || "sb_publishable_placeholder_study_bangalore";
+  try {
+    const sb = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: u, error } = await sb.auth.getUser(token);
+    if (error || !u?.user) {
+      return Response.json({ error: "Session expired or invalid. Please sign in." }, { status: 401 });
     }
-  } else {
-    const supabaseUrl =
-      process.env["SUPABASE_URL"] || "https://fbyvydtakpcklthvmdrk.supabase.co";
-    const supabaseKey =
-      process.env["SUPABASE_PUBLISHABLE_KEY"] || "sb_publishable_placeholder_study_bangalore";
-    try {
-      const sb = createClient(supabaseUrl, supabaseKey, {
-        global: { headers: { Authorization: `Bearer ${token}` } },
-        auth: { persistSession: false },
-      });
-      const { data: u, error } = await sb.auth.getUser(token);
-      if (error || !u?.user) {
-        return Response.json({ error: "Session expired or invalid. Please sign in." }, { status: 401 });
-      }
-      userId = u.user.id;
-      userEmail = u.user.email || userEmail;
-    } catch {
-      return Response.json({ error: "Authentication failed. Please sign in again." }, { status: 401 });
-    }
+    userId = u.user.id;
+    userEmail = u.user.email || userEmail;
+  } catch {
+    return Response.json({ error: "Authentication failed. Please sign in again." }, { status: 401 });
   }
 
   // Rate limiting: 40 messages per student per hour
@@ -79,6 +73,35 @@ export async function handleTutor(request: Request) {
     attemptId?: string;
     userName?: string;
   } | null;
+
+  // Refuse hints for timed mock examinations to ensure integrity
+  if (body?.attemptId) {
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: att } = await supabaseAdmin
+        .from("attempts")
+        .select("id, mode, status, user_id")
+        .eq("id", body.attemptId)
+        .maybeSingle();
+
+      if (att) {
+        if (att.mode === "mock") {
+          return Response.json(
+            { error: "AI hints are disabled during timed mock examinations to maintain exam integrity." },
+            { status: 403 }
+          );
+        }
+        if (att.user_id !== userId) {
+          return Response.json(
+            { error: "Unauthorized: You do not have permission to access this attempt." },
+            { status: 403 }
+          );
+        }
+      }
+    } catch (attErr) {
+      console.warn("Could not verify attempt status:", attErr);
+    }
+  }
 
   const rawMsgs = (body?.messages ?? []).filter(
     (m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string"

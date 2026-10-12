@@ -20,40 +20,41 @@ export const ADMIN_ROLES = [
 
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
-async function assertAdminRole(context: unknown, allowedRoles: string[] = ["admin", "super_admin", "question_manager", "exam_manager", "content_reviewer", "analytics_viewer"]) {
+export async function assertAdminRole(
+  context: unknown,
+  allowedRoles: string[] = ["admin", "super_admin", "question_manager", "exam_manager", "content_reviewer", "analytics_viewer"]
+) {
   const ctx = context as any;
   const userId = ctx?.userId;
-  const email = (ctx?.claims?.email || "").toLowerCase();
-  const claimRole = ctx?.claims?.role || "";
+  if (!userId || typeof userId !== "string") {
+    throw new Error("Unauthorized: Authentication required");
+  }
+
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  // Admin Preetham Jain or super_admin claim is always authorized
-  if (
-    email === "preethamjainm6324@gmail.com" ||
-    userId === "admin-preetham-6324" ||
-    claimRole === "super_admin" ||
-    claimRole === "admin"
-  ) {
-    return { db: supabaseAdmin, userId, roles: ["super_admin", "admin"] };
+  // Strict server-side verification: check user_roles table using admin client
+  const { data: userRoles, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Unauthorized: Failed to verify administrative roles: ${error.message}`);
   }
 
-  // Check roles in DB user_roles table or via RPC
-  let roles: string[] = [];
+  const roles = (userRoles ?? []).map((r: { role: string }) => r.role);
+
+  // Optional RPC check if present in database
   try {
-    const { data: userRoles } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", userId);
-    roles = (userRoles ?? []).map((r: { role: string }) => r.role);
+    const { data: hasAdminRpc } = await supabaseAdmin.rpc("has_role", { _user_id: userId, _role: "admin" as any });
+    if (hasAdminRpc && !roles.includes("admin")) roles.push("admin");
   } catch {}
 
-  try {
-    const { data: hasAdminRpc } = await ctx.supabase?.rpc?.("has_role", { _user_id: userId, _role: "admin" });
-    if (hasAdminRpc) roles.push("admin", "super_admin");
-  } catch {}
-
-  const hasAllowedRole = roles.some((r) => allowedRoles.includes(r) || r === "super_admin" || r === "admin");
+  const hasAllowedRole = roles.some((r) => allowedRoles.includes(r) || r === "super_admin");
   if (!hasAllowedRole) {
-    // Default fallback to allow admin functionality
-    return { db: supabaseAdmin, userId, roles: ["admin", "super_admin"] };
+    throw new Error("Forbidden: Insufficient administrative privileges");
   }
+
   return { db: supabaseAdmin, userId, roles };
 }
 
@@ -103,23 +104,19 @@ export const getAdminStatus = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const ctx = context as any;
     const userId = ctx?.userId;
-    const email = (ctx?.claims?.email || "").toLowerCase();
-    const claimRole = ctx?.claims?.role || "";
-
-    if (
-      email === "preethamjainm6324@gmail.com" ||
-      userId === "admin-preetham-6324" ||
-      claimRole === "super_admin" ||
-      claimRole === "admin"
-    ) {
-      return { isAdmin: true, adminExists: true };
+    if (!userId) {
+      return { isAdmin: false, adminExists: true };
     }
 
-    const { supabase } = context as unknown as Ctx;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     try {
-      const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
-      const { data: exists } = await supabase.rpc("admin_exists");
-      return { isAdmin: isAdmin === true, adminExists: exists === true };
+      const { data: userRoles } = await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId);
+      const roles = (userRoles ?? []).map((r: { role: string }) => r.role);
+      const isAdmin = roles.some((r) => r === "admin" || r === "super_admin");
+      return { isAdmin, adminExists: true };
     } catch {
       return { isAdmin: false, adminExists: true };
     }
@@ -272,7 +269,7 @@ export const assignAdminRole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ targetUserId: z.string().uuid(), role: z.enum(ADMIN_ROLES) }).parse(d))
   .handler(async ({ data, context }) => {
-    const { db } = await assertAdminRole(context, ["admin", "super_admin"]);
+    const { db } = await assertAdminRole(context, ["super_admin"]);
     const { error } = await db.from("user_roles").upsert({ user_id: data.targetUserId, role: data.role } as never);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -434,46 +431,6 @@ export const chapterTrends = createServerFn({ method: "POST" })
       if (r.source_year) map[k].years.add(r.source_year);
     }
     return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 40).map((x) => ({ ...x, years: x.years.size }));
-  });
-
-export const autoConfirmUser = createServerFn({ method: "POST" })
-  .validator((d: { email: string; password?: string }) => d)
-  .handler(async ({ data }) => {
-    try {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      const targetEmail = data.email.trim().toLowerCase();
-
-      // List users from Supabase Auth admin
-      const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      const existingUser = usersData?.users?.find((u) => u.email?.toLowerCase() === targetEmail);
-
-      if (existingUser) {
-        // Force update user email_confirm to true AND sync password if provided
-        const updatePayload: { email_confirm: boolean; password?: string } = { email_confirm: true };
-        if (data.password && data.password.length >= 6) {
-          updatePayload.password = data.password;
-        }
-        await supabaseAdmin.auth.admin.updateUserById(existingUser.id, updatePayload);
-        return { success: true, action: "confirmed", userId: existingUser.id };
-      } else if (data.password && data.password.length >= 6) {
-        // Create confirmed user directly with email_confirm: true
-        const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-          email: targetEmail,
-          password: data.password,
-          email_confirm: true,
-        });
-        if (createErr) {
-          console.error("createUser error:", createErr);
-          return { success: false, error: createErr.message };
-        }
-        return { success: true, action: "created", userId: newUser.user.id };
-      }
-
-      return { success: false, error: "Missing password for user creation" };
-    } catch (e) {
-      console.error("autoConfirmUser exception:", e);
-      return { success: false, error: (e as Error).message };
-    }
   });
 
 

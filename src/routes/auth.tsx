@@ -7,13 +7,6 @@ import { btnGhost, btnPrimary } from "@/components/site/ui";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
-const SESSION_KEY = "study_user_session";
-const ADMIN_KEY = "study_admin_active";
-const STUDENTS_KEY = "study_registered_students";
-
-const ADMIN_EMAIL = "preethamjainm6324@gmail.com";
-const ADMIN_PASSWORD = "Preetham#2026!Admin";
-
 const safeNext = (n?: string) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/scholarship-exam");
 
 export const Route = createFileRoute("/auth")({
@@ -82,89 +75,19 @@ function AuthPage() {
     try {
       const targetDestination = sessionStorage.getItem("auth-next") || safeNext(next);
 
-      // 1. DIRECT ADMIN AUTHENTICATION
-      const isAdminLogin =
-        cleanEmail === ADMIN_EMAIL ||
-        cleanEmail === "admin@studyatbangalore.in" ||
-        cleanEmail.includes("preetham");
-
-      if (isAdminLogin) {
-        const adminSession = {
-          id: "admin-preetham-6324",
-          email: ADMIN_EMAIL,
-          user_metadata: {
-            full_name: "Preetham Jain",
-            role: "super_admin",
-          },
-        };
-        loginUser(adminSession, true);
-
-        setMsg({ text: "Welcome Preetham Jain! Opening portal…", type: "success" });
-        toast.success("Welcome Admin Preetham Jain! Direct access granted.");
-        sessionStorage.removeItem("auth-next");
-        window.location.href = "/admin";
-        return;
-      }
-
       if (mode === "in") {
-        // SIGN IN - Check local student registry first
-        const rawStudents = localStorage.getItem(STUDENTS_KEY);
-        const studentList: any[] = rawStudents ? JSON.parse(rawStudents) : [];
-        const found = studentList.find(
-          (s: any) => s.email.toLowerCase() === cleanEmail && (s.password === password || password.length >= 4)
-        );
-
-        if (found) {
-          // Update last login
-          found.lastLogin = new Date().toISOString();
-          localStorage.setItem(STUDENTS_KEY, JSON.stringify(studentList));
-
-          const studentSession = {
-            id: found.id || "student-" + Date.now(),
-            email: found.email,
-            user_metadata: {
-              full_name: found.name,
-              standard: found.standard,
-              stream: found.stream,
-              phone: found.phone || "",
-              target_exams: found.target_exams || ["KCET", "Scholarship Exam"],
-              role: "student",
-            },
-          };
-          loginUser(studentSession, false);
-          setMsg({ text: `Welcome ${found.name}! Redirecting…`, type: "success" });
-          toast.success(`Welcome back ${found.name}!`);
-          sessionStorage.removeItem("auth-next");
-          window.location.href = targetDestination;
-          return;
-        }
-
-        // Try Supabase Auth Sign In
+        // Genuine Supabase Auth Sign In
         const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-        if (error) {
-          // Also check if any student email matches to let them in seamlessly
-          const studentSession = {
-            id: "student-" + Date.now(),
-            email: cleanEmail,
-            user_metadata: {
-              full_name: cleanEmail.split("@")[0],
-              standard: "12th Standard",
-              stream: "PCMB",
-              role: "student",
-            },
-          };
-          loginUser(studentSession, false);
-          toast.success(`Welcome back!`);
-          window.location.href = targetDestination;
+        if (error || !data?.user) {
+          setMsg({ text: error?.message || "Invalid email or password. Please verify your credentials.", type: "error" });
+          setBusy(false);
           return;
         }
 
-        if (data.user) {
-          loginUser(data.user, false);
-          setMsg({ text: "Signed in successfully! Redirecting…", type: "success" });
-          sessionStorage.removeItem("auth-next");
-          window.location.href = targetDestination;
-        }
+        loginUser(data.user, false);
+        setMsg({ text: "Signed in successfully! Redirecting…", type: "success" });
+        sessionStorage.removeItem("auth-next");
+        window.location.href = targetDestination;
       } else if (mode === "up") {
         // CREATE ACCOUNT
         if (!name.trim()) {
@@ -183,88 +106,78 @@ function AuthPage() {
           return;
         }
 
-        // Check if email already registered locally
-        const rawStudents = localStorage.getItem(STUDENTS_KEY);
-        const studentList: any[] = rawStudents ? JSON.parse(rawStudents) : [];
-        const existing = studentList.find((s: any) => s.email.toLowerCase() === cleanEmail);
-        if (existing) {
-          setMsg({ text: "An account with this email already exists. Please sign in instead.", type: "error" });
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: {
+              full_name: name.trim(),
+              standard,
+              stream,
+              phone: phone.trim(),
+              target_exams: targetExams,
+            },
+          },
+        });
+
+        if (error) {
+          setMsg({ text: error.message || "Account creation failed.", type: "error" });
           setBusy(false);
           return;
         }
 
-        // Save student account to local registry
-        const newStudent = {
-          id: "student-" + Date.now(),
-          name: name.trim(),
-          email: cleanEmail,
-          phone: phone.trim(),
-          standard,
-          stream,
-          target_exams: targetExams,
-          password,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-        };
+        if (data.user) {
+          loginUser(data.user, false);
+          try {
+            await (supabase as any).from("profiles").upsert({
+              id: data.user.id,
+              display_name: name.trim(),
+              standard,
+              stream,
+              target_exams: targetExams,
+              email: cleanEmail,
+              phone: phone.trim(),
+              updated_at: new Date().toISOString(),
+            });
+          } catch {}
 
-        studentList.push(newStudent);
-        localStorage.setItem(STUDENTS_KEY, JSON.stringify(studentList));
-
-        // Set student session
-        const studentSession = {
-          id: newStudent.id,
-          email: newStudent.email,
-          user_metadata: {
-            full_name: newStudent.name,
-            standard: newStudent.standard,
-            stream: newStudent.stream,
-            phone: newStudent.phone,
-            target_exams: newStudent.target_exams,
-            role: "student",
-          },
-        };
-        loginUser(studentSession, false);
-
-        // Also register in Supabase Auth if online
-        try {
-          await supabase.auth.signUp({
-            email: cleanEmail,
-            password,
-            options: {
-              data: {
-                full_name: newStudent.name,
-                standard: newStudent.standard,
-                stream: newStudent.stream,
-                phone: newStudent.phone,
-                target_exams: newStudent.target_exams,
-              },
-            },
-          });
-        } catch {}
-
-        // Try syncing profile with Supabase DB silently
-        try {
-          await (supabase as any).from("profiles").upsert({
-            id: newStudent.id,
-            display_name: newStudent.name,
-            standard: newStudent.standard,
-            stream: newStudent.stream,
-            target_exams: newStudent.target_exams,
-            email: newStudent.email,
-            phone: newStudent.phone,
-            updated_at: new Date().toISOString(),
-          });
-        } catch (e) {}
-
-        setMsg({ text: `Welcome ${newStudent.name}! Account created.`, type: "success" });
-        toast.success(`Account created for ${newStudent.name} (${newStudent.standard})`);
-        sessionStorage.removeItem("auth-next");
-        window.location.href = targetDestination;
+          setMsg({ text: `Welcome ${name.trim()}! Account created.`, type: "success" });
+          toast.success(`Account created for ${name.trim()}`);
+          sessionStorage.removeItem("auth-next");
+          window.location.href = targetDestination;
+        } else {
+          setMsg({ text: "Account created! Please check your email for a confirmation link.", type: "info" });
+          toast.info("Please check your email to confirm your account.");
+        }
       } else if (mode === "forgot") {
-        setMsg({ text: "Password reset link sent to your registered email address.", type: "success" });
+        const resetRedirect = typeof window !== "undefined" ? `${window.location.origin}/auth?mode=reset` : "";
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          cleanEmail,
+          resetRedirect ? { redirectTo: resetRedirect } : {}
+        );
+        if (error) {
+          setMsg({ text: error.message || "Failed to send reset link.", type: "error" });
+        } else {
+          setMsg({ text: "Password reset link sent to your registered email address.", type: "success" });
+        }
       } else if (mode === "reset") {
-        setMsg({ text: "Password updated successfully. You can now sign in.", type: "success" });
-        setMode("in");
+        if (password.length < 8) {
+          setMsg({ text: "Password must be at least 8 characters long.", type: "error" });
+          setBusy(false);
+          return;
+        }
+        if (password !== confirmPassword) {
+          setMsg({ text: "Passwords do not match. Please re-enter.", type: "error" });
+          setBusy(false);
+          return;
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) {
+          setMsg({ text: error.message || "Failed to update password.", type: "error" });
+        } else {
+          setMsg({ text: "Password updated successfully. You can now sign in.", type: "success" });
+          setMode("in");
+        }
       }
     } catch (err) {
       setMsg({ text: (err as Error).message || "An error occurred.", type: "error" });
