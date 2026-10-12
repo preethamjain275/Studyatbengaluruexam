@@ -113,9 +113,11 @@ export async function uploadAvatar(file: File, userId: string): Promise<string> 
       if (publicUrlData?.publicUrl) {
         return publicUrlData.publicUrl;
       }
+    } else {
+      console.warn("Supabase Storage upload returned error:", uploadError.message);
     }
   } catch (storageErr) {
-    console.warn("Supabase Storage upload warning, using resilient fallback:", storageErr);
+    console.warn("Supabase Storage upload exception, using fallback:", storageErr);
   }
 
   // Resilient fallback: read as client Data URL

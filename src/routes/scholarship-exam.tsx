@@ -69,18 +69,18 @@ function Streak() {
 }
 
 function Portal() {
-  const { user, ready, loginUser, isAdmin } = useAuth();
+  const { user, profile, ready, loginUser, refreshProfile, isAdmin } = useAuth();
 
-  // Initial user metadata
+  // Initial user metadata & canonical profile
   const meta = (user?.user_metadata || {}) as Record<string, any>;
   const initialName =
-    meta["full_name"] || meta["display_name"] || user?.email?.split("@")[0] || "Student";
+    profile?.display_name || meta["full_name"] || meta["display_name"] || user?.email?.split("@")[0] || "Student";
 
   // Reactive student profile state
   const [studentName, setStudentName] = useState(initialName);
-  const [studentEmail, setStudentEmail] = useState(user?.email || "");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(meta["avatar_url"] || null);
-  const [standard, setStandard] = useState(meta["standard"] || "12th Standard");
+  const [studentEmail, setStudentEmail] = useState(profile?.email || user?.email || "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url || meta["avatar_url"] || null);
+  const [standard, setStandard] = useState(profile?.standard || meta["standard"] || "12th Standard");
   const [targetExam, setTargetExam] = useState(
     meta["target_exam"] || (meta["target_exams"]?.[0] ?? "KCET")
   );
@@ -215,17 +215,11 @@ function Portal() {
         });
       } catch {}
 
-      // Update session & auth context for immediate reactive sync across Header/Navbar
-      const updatedUser = {
-        ...user,
-        user_metadata: {
-          ...(user.user_metadata || {}),
-          avatar_url: uploadedUrl,
-          full_name: studentName,
-        },
-      };
-      loginUser(updatedUser, isAdmin);
-      localStorage.setItem("study_user_session", JSON.stringify(updatedUser));
+      // Synchronize with Supabase Auth metadata for seamless cross-device session reflection
+      await supabase.auth.updateUser({
+        data: { avatar_url: uploadedUrl, full_name: studentName },
+      }).catch(() => {});
+      await refreshProfile();
 
       toast.success("Profile photo updated successfully!");
     } catch (err) {
@@ -266,6 +260,12 @@ function Portal() {
           updated_at: new Date().toISOString(),
         });
       } catch {}
+
+      // Synchronize with Supabase Auth metadata for seamless cross-device session reflection
+      await supabase.auth.updateUser({
+        data: { full_name: trimmed, display_name: trimmed },
+      }).catch(() => {});
+      await refreshProfile();
 
       toast.success("Student name updated successfully!");
       setNameDialogOpen(false);

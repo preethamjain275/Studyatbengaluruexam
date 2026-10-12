@@ -137,7 +137,7 @@ function AuthPage() {
         if (data.user) {
           loginUser(data.user, false);
           try {
-            await supabase.from("profiles").upsert({
+            const { error: pErr } = await supabase.from("profiles").upsert({
               id: data.user.id,
               display_name: name.trim(),
               standard,
@@ -147,6 +147,17 @@ function AuthPage() {
               phone: phone.trim(),
               updated_at: new Date().toISOString(),
             });
+            if (pErr && (pErr.code === "PGRST204" || pErr.code === "42703")) {
+              await supabase.from("profiles").upsert({
+                id: data.user.id,
+                display_name: name.trim(),
+                standard,
+                stream,
+                email: cleanEmail,
+                phone: phone.trim(),
+                updated_at: new Date().toISOString(),
+              });
+            }
           } catch {}
 
           setMsg({ text: `Welcome ${name.trim()}! Account created.`, type: "success" });

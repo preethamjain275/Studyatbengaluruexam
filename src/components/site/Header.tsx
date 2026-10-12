@@ -28,11 +28,11 @@ export function Header() {
   const [notif, setNotif] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
-  const { user, logout, isAdmin } = useAuth();
+  const { user, profile, logout, isAdmin } = useAuth();
 
   const metadata = (user?.user_metadata || {}) as Record<string, any>;
-  const avatarUrl = metadata["avatar_url"];
-  const displayName = metadata["full_name"] || metadata["display_name"] || user?.email?.split("@")[0] || "Student";
+  const avatarUrl = profile?.avatar_url || metadata["avatar_url"] || null;
+  const displayName = profile?.display_name || metadata["full_name"] || metadata["display_name"] || user?.email?.split("@")[0] || "Student";
   const initials = getInitials(displayName, user?.email);
 
   return (

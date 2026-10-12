@@ -63,7 +63,7 @@ const ALL_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Biology"];
 const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function ProfilePage() {
-  const { user, loginUser, logout, isAdmin } = useAuth();
+  const { user, profile, loginUser, logout, refreshProfile, isAdmin } = useAuth();
   const navigate = useNavigate();
   const personalInfoRef = useRef<HTMLDivElement>(null);
 
@@ -307,7 +307,11 @@ function ProfilePage() {
         avatar_url: newUrl,
         updated_at: new Date().toISOString(),
       });
-      toast.success("Profile photo updated successfully!");
+      // Synchronize with Supabase Auth metadata for seamless cross-device session reflection
+      await supabase.auth.updateUser({
+        data: { avatar_url: newUrl },
+      }).catch(() => {});
+      await refreshProfile();
     } catch {
       // Local session already updated
     }
@@ -333,7 +337,10 @@ function ProfilePage() {
         avatar_url: null,
         updated_at: new Date().toISOString(),
       });
-      toast.success("Profile photo removed.");
+      await supabase.auth.updateUser({
+        data: { avatar_url: "" },
+      }).catch(() => {});
+      await refreshProfile();
     } catch {
       // Local session already updated
     }
@@ -381,6 +388,12 @@ function ProfilePage() {
             updated_at: new Date().toISOString(),
           });
         }
+
+        // Sync with Supabase Auth metadata
+        await supabase.auth.updateUser({
+          data: { full_name: name, display_name: name, phone },
+        }).catch(() => {});
+        await refreshProfile();
       } catch (e) {}
 
       toast.success("Personal information saved successfully!");
