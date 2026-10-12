@@ -1,162 +1,602 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   User,
-  LogOut,
-  GraduationCap,
+  Mail,
+  Phone,
+  MapPin,
+  Pencil,
   Save,
-  CheckCircle,
-  Award,
-  Layers,
-  History,
   Target,
+  Plus,
+  X,
   Sparkles,
+  BookOpen,
+  Calendar,
+  Clock,
+  TrendingUp,
+  Compass,
+  ShieldCheck,
+  KeyRound,
+  Shield,
+  Download,
+  Trash2,
+  LogOut,
+  ChevronRight,
+  Award,
+  History,
+  CheckCircle2,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { btnGhost, btnPrimary } from "@/components/site/ui";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { AttemptProgression, type AttemptItem } from "@/components/site/AttemptProgression";
+import { AttemptProgression } from "@/components/site/AttemptProgression";
 import { getMasteryThreshold } from "@/lib/engine/state";
+import { AvatarUpload } from "@/components/site/AvatarUpload";
+import {
+  ChangePasswordDialog,
+  ChangeEmailDialog,
+  AddExamDialog,
+  PrivacySettingsDialog,
+  DeleteAccountDialog,
+} from "@/components/site/AccountDialogs";
+import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
       { title: "Student Dashboard & Profile - Study at Bangalore" },
-      { name: "description", content: "Personal academic details, target examinations, attendance history, and attempt progression curve." },
+      {
+        name: "description",
+        content:
+          "Personal academic details, target examinations, learning analytics, and account settings.",
+      },
     ],
   }),
   component: ProfilePage,
 });
 
-export const EXAM_OPTIONS = [
-  { id: "KCET", label: "KCET", full: "Karnataka Common Entrance Test", color: "border-blue-500/30 text-blue-600 bg-blue-500/10" },
-  { id: "NEET", label: "NEET UG", full: "Medical & Dental (MBBS / BDS)", color: "border-emerald-500/30 text-emerald-600 bg-emerald-500/10" },
-  { id: "JEE Main", label: "JEE Main", full: "National Engineering (NITs / IIITs)", color: "border-indigo-500/30 text-indigo-600 bg-indigo-500/10" },
-  { id: "JEE Advanced", label: "JEE Advanced", full: "Indian Institutes of Technology (IITs)", color: "border-purple-500/30 text-purple-600 bg-purple-500/10" },
-  { id: "COMEDK", label: "COMEDK UGET", full: "Karnataka Private Engineering", color: "border-amber-500/30 text-amber-600 bg-amber-500/10" },
-  { id: "PGCET", label: "Karnataka PGCET", full: "Post Graduate (MBA, MCA, M.Tech)", color: "border-rose-500/30 text-rose-600 bg-rose-500/10" },
-  { id: "Scholarship", label: "Scholarship Exam", full: "Study at Bangalore Scholarship Test", color: "border-cyan-500/30 text-cyan-600 bg-cyan-500/10" },
-];
+const ALL_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Biology"];
+const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function ProfilePage() {
-  const { user, logout } = useAuth();
+function ProfilePage() {
+  const { user, loginUser, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const personalInfoRef = useRef<HTMLDivElement>(null);
 
+  // Profile data states
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [standard, setStandard] = useState("12th Standard");
-  const [stream, setStream] = useState("PCMB");
-  const [targetExams, setTargetExams] = useState<string[]>(["KCET"]);
-  const [age, setAge] = useState("17");
   const [phone, setPhone] = useState("");
+  const [location, setLocation] = useState("Bengaluru, Karnataka");
+  const [aboutMe, setAboutMe] = useState(
+    "Dedicated student preparing for engineering and medical entrance examinations."
+  );
   const [avatarUrl, setAvatarUrl] = useState("");
-  const [saving, setSaving] = useState(false);
 
-  // Student attempts history for the Dashboard
+  // Exam Preparation states
+  const [targetExams, setTargetExams] = useState<string[]>(["KCET", "JEE Main"]);
+  const [targetYear, setTargetYear] = useState("2026");
+  const [prepStage, setPrepStage] = useState("Intermediate - Covering Syllabus");
+  const [targetRank, setTargetRank] = useState("Top 1,000");
+  const [focusSubjects, setFocusSubjects] = useState<string[]>([
+    "Physics",
+    "Chemistry",
+    "Mathematics",
+  ]);
+
+  // Study Goals & Preferences
+  const [weeklyHours, setWeeklyHours] = useState(24);
+  const [dailyHours, setDailyHours] = useState(4);
+  const [preferredDays, setPreferredDays] = useState<string[]>([
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+  ]);
+  const [preferredLanguage, setPreferredLanguage] = useState("English");
+  const [appTheme, setAppTheme] = useState("System");
+  const [practiceMode, setPracticeMode] = useState("Timed Exam Simulation");
+  const [difficultyPreference, setDifficultyPreference] = useState(
+    "Mixed (Recommended)"
+  );
+
+  // Notification Preferences
+  const [studyReminders, setStudyReminders] = useState(true);
+  const [testUpdates, setTestUpdates] = useState(true);
+  const [newMaterial, setNewMaterial] = useState(true);
+  const [personalizedTips, setPersonalizedTips] = useState(true);
+
+  // Saving state indicators
+  const [savingPersonal, setSavingPersonal] = useState(false);
+  const [savingExams, setSavingExams] = useState(false);
+  const [savingPrefs, setSavingPrefs] = useState(false);
+
+  // Dialog open states
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
+  const [addExamOpen, setAddExamOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+
+  // Learning analytics & attempts
   const [attempts, setAttempts] = useState<any[]>([]);
-  const [loadingAttempts, setLoadingAttempts] = useState(true);
+  const [timeFilter, setTimeFilter] = useState<"30" | "7" | "all">("30");
+  const [bookmarkedCount, setBookmarkedCount] = useState(0);
 
+  // Load user data on mount
   useEffect(() => {
-    if (user) {
-      setEmail(user.email ?? "");
-      const meta = (user.user_metadata || {}) as Record<string, any>;
-      setName(meta["full_name"] || meta["display_name"] || user.email?.split("@")[0] || "");
-      setStandard(meta["standard"] || "12th Standard");
-      setStream(meta["stream"] || "PCMB");
-      setAge(meta["age"] || "17");
-      setPhone(meta["phone"] || "");
-      setAvatarUrl(meta["avatar_url"] || "");
+    if (!user) return;
 
-      // Multi-select target exams support
-      const loadedExams = meta["target_exams"] || (meta["target_exam"] ? [meta["target_exam"]] : ["KCET"]);
-      setTargetExams(Array.isArray(loadedExams) ? loadedExams : [loadedExams]);
+    setEmail(user.email ?? "");
+    const meta = (user.user_metadata || {}) as Record<string, any>;
 
-      // Load attempts history for student dashboard
-      async function fetchAttempts() {
-        try {
-          const { data, error } = await (supabase as any)
-            .from("attempts")
-            .select("*")
-            .eq("user_id", user?.id)
-            .order("created_at", { ascending: false })
-            .limit(50);
+    setName(meta["full_name"] || meta["display_name"] || user.email?.split("@")[0] || "Student");
+    setPhone(meta["phone"] || "");
+    setLocation(meta["location"] || "Bengaluru, Karnataka");
+    setAboutMe(
+      meta["about_me"] ||
+        "Dedicated student preparing for engineering and medical entrance examinations."
+    );
+    setAvatarUrl(meta["avatar_url"] || "");
 
-          if (!error && data && data.length > 0) {
-            setAttempts(data);
-          } else {
-            // Check any locally saved attempts
-            const localRaw = localStorage.getItem("study_registered_students");
-            setAttempts([]);
-          }
-        } catch {
-          setAttempts([]);
-        } finally {
-          setLoadingAttempts(false);
-        }
-      }
+    const loadedExams =
+      meta["target_exams"] || (meta["target_exam"] ? [meta["target_exam"]] : ["KCET", "JEE Main"]);
+    setTargetExams(Array.isArray(loadedExams) ? loadedExams : [loadedExams]);
 
-      fetchAttempts();
+    const examDetailsMeta = meta["exam_details"];
+    if (examDetailsMeta) {
+      if (examDetailsMeta["target_year"]) setTargetYear(examDetailsMeta["target_year"]);
+      if (examDetailsMeta["stage"]) setPrepStage(examDetailsMeta["stage"]);
+      if (examDetailsMeta["target_rank"]) setTargetRank(examDetailsMeta["target_rank"]);
+      if (Array.isArray(examDetailsMeta["focus_subjects"]))
+        setFocusSubjects(examDetailsMeta["focus_subjects"]);
     }
+
+    const studyGoalsMeta = meta["study_goals"];
+    if (studyGoalsMeta) {
+      if (studyGoalsMeta["weekly_hours"]) setWeeklyHours(studyGoalsMeta["weekly_hours"]);
+      if (studyGoalsMeta["daily_hours"]) setDailyHours(studyGoalsMeta["daily_hours"]);
+      if (Array.isArray(studyGoalsMeta["preferred_days"]))
+        setPreferredDays(studyGoalsMeta["preferred_days"]);
+    }
+
+    const learningPrefsMeta = meta["learning_preferences"];
+    if (learningPrefsMeta) {
+      if (learningPrefsMeta["language"])
+        setPreferredLanguage(learningPrefsMeta["language"]);
+      if (learningPrefsMeta["theme"]) setAppTheme(learningPrefsMeta["theme"]);
+      if (learningPrefsMeta["practice_mode"])
+        setPracticeMode(learningPrefsMeta["practice_mode"]);
+      if (learningPrefsMeta["difficulty"])
+        setDifficultyPreference(learningPrefsMeta["difficulty"]);
+    }
+
+    const notifMeta = meta["notification_preferences"];
+    if (notifMeta) {
+      if (typeof notifMeta["study_reminders"] === "boolean")
+        setStudyReminders(notifMeta["study_reminders"]);
+      if (typeof notifMeta["test_updates"] === "boolean")
+        setTestUpdates(notifMeta["test_updates"]);
+      if (typeof notifMeta["new_material"] === "boolean")
+        setNewMaterial(notifMeta["new_material"]);
+      if (typeof notifMeta["personalized_tips"] === "boolean")
+        setPersonalizedTips(notifMeta["personalized_tips"]);
+    }
+
+    // Load bookmarks count from localStorage
+    try {
+      const bMarks = JSON.parse(localStorage.getItem("bookmarks") || "[]");
+      setBookmarkedCount(Array.isArray(bMarks) ? bMarks.length : 0);
+    } catch {
+      setBookmarkedCount(0);
+    }
+
+    // Fetch profile from Supabase table if available
+    async function loadProfile() {
+      try {
+        const { data, error } = await (supabase as any)
+          .from("profiles")
+          .select("*")
+          .eq("id", user?.id)
+          .maybeSingle();
+
+        if (!error && data) {
+          if (data.display_name) setName(data.display_name);
+          if (data.phone) setPhone(data.phone);
+          if (data.location) setLocation(data.location);
+          if (data.about_me) setAboutMe(data.about_me);
+          if (data.avatar_url) setAvatarUrl(data.avatar_url);
+          if (data.target_exams && data.target_exams.length > 0)
+            setTargetExams(data.target_exams);
+
+          if (data.exam_details) {
+            if (data.exam_details.target_year) setTargetYear(data.exam_details.target_year);
+            if (data.exam_details.stage) setPrepStage(data.exam_details.stage);
+            if (data.exam_details.target_rank) setTargetRank(data.exam_details.target_rank);
+            if (Array.isArray(data.exam_details.focus_subjects))
+              setFocusSubjects(data.exam_details.focus_subjects);
+          }
+
+          if (data.study_goals) {
+            if (data.study_goals.weekly_hours) setWeeklyHours(data.study_goals.weekly_hours);
+            if (data.study_goals.daily_hours) setDailyHours(data.study_goals.daily_hours);
+            if (Array.isArray(data.study_goals.preferred_days))
+              setPreferredDays(data.study_goals.preferred_days);
+          }
+
+          if (data.learning_preferences) {
+            if (data.learning_preferences.language)
+              setPreferredLanguage(data.learning_preferences.language);
+            if (data.learning_preferences.theme) setAppTheme(data.learning_preferences.theme);
+            if (data.learning_preferences.practice_mode)
+              setPracticeMode(data.learning_preferences.practice_mode);
+            if (data.learning_preferences.difficulty)
+              setDifficultyPreference(data.learning_preferences.difficulty);
+          }
+
+          if (data.notification_preferences) {
+            if (typeof data.notification_preferences.study_reminders === "boolean")
+              setStudyReminders(data.notification_preferences.study_reminders);
+            if (typeof data.notification_preferences.test_updates === "boolean")
+              setTestUpdates(data.notification_preferences.test_updates);
+            if (typeof data.notification_preferences.new_material === "boolean")
+              setNewMaterial(data.notification_preferences.new_material);
+            if (typeof data.notification_preferences.personalized_tips === "boolean")
+              setPersonalizedTips(data.notification_preferences.personalized_tips);
+          }
+        }
+      } catch (err) {
+        // Silently fallback to metadata
+      }
+    }
+
+    // Load attempts history
+    async function loadAttempts() {
+      try {
+        const { data, error } = await (supabase as any)
+          .from("attempts")
+          .select("*")
+          .eq("user_id", user?.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (!error && data && data.length > 0) {
+          setAttempts(data);
+        } else {
+          setAttempts([]);
+        }
+      } catch {
+        setAttempts([]);
+      }
+    }
+
+    loadProfile();
+    loadAttempts();
   }, [user]);
 
-  function toggleExam(id: string) {
-    setTargetExams((prev) =>
-      prev.includes(id)
-        ? prev.length > 1
-          ? prev.filter((x) => x !== id)
-          : prev // Keep at least one selected
-        : [...prev, id]
-    );
-  }
+  // Handle avatar changes
+  async function handleAvatarChange(newUrl: string) {
+    setAvatarUrl(newUrl);
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
+    if (!user) return;
+    const updatedUser = {
+      ...user,
+      user_metadata: {
+        ...(user.user_metadata || {}),
+        avatar_url: newUrl,
+      },
+    };
+
+    loginUser(updatedUser, isAdmin);
 
     try {
-      // 1. Update session in localStorage and memory
+      await (supabase as any).from("profiles").upsert({
+        id: user.id,
+        avatar_url: newUrl,
+        updated_at: new Date().toISOString(),
+      });
+      toast.success("Profile photo updated successfully!");
+    } catch {
+      // Local session already updated
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarUrl("");
+
+    if (!user) return;
+    const updatedUser = {
+      ...user,
+      user_metadata: {
+        ...(user.user_metadata || {}),
+        avatar_url: "",
+      },
+    };
+
+    loginUser(updatedUser, isAdmin);
+
+    try {
+      await (supabase as any).from("profiles").upsert({
+        id: user.id,
+        avatar_url: null,
+        updated_at: new Date().toISOString(),
+      });
+      toast.success("Profile photo removed.");
+    } catch {
+      // Local session already updated
+    }
+  }
+
+  // Save 1: Personal Information
+  async function handleSavePersonal(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!user) return;
+
+    setSavingPersonal(true);
+    try {
       const updatedUser = {
         ...user,
-        email,
         user_metadata: {
-          ...(user?.user_metadata || {}),
+          ...(user.user_metadata || {}),
           full_name: name,
-          standard,
-          stream,
-          target_exams: targetExams,
-          target_exam: targetExams[0] || "KCET",
-          age,
+          display_name: name,
           phone,
+          location,
+          about_me: aboutMe,
           avatar_url: avatarUrl,
         },
       };
 
-      localStorage.setItem("study_user_session", JSON.stringify(updatedUser));
+      loginUser(updatedUser, isAdmin);
 
-      // 2. Update Supabase profiles table
       try {
         await (supabase as any).from("profiles").upsert({
-          id: user?.id || "local-user",
+          id: user.id,
           display_name: name,
-          standard,
-          stream,
-          target_exams: targetExams,
           email,
           phone,
-          avatar_url: avatarUrl,
+          location,
+          about_me: aboutMe,
           updated_at: new Date().toISOString(),
         });
       } catch (e) {}
 
-      toast.success("Academic profile & target examinations saved successfully!");
-    } catch (err) {
-      toast.error("Failed to save profile details.");
+      toast.success("Personal information saved successfully!");
+    } catch {
+      toast.error("Failed to save personal information.");
     } finally {
-      setSaving(false);
+      setSavingPersonal(false);
     }
   }
 
+  // Save 2: Exam Preparation
+  async function handleSaveExams(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!user) return;
+
+    setSavingExams(true);
+    try {
+      const examDetailsObj = {
+        target_year: targetYear,
+        stage: prepStage,
+        target_rank: targetRank,
+        focus_subjects: focusSubjects,
+      };
+
+      const updatedUser = {
+        ...user,
+        user_metadata: {
+          ...(user.user_metadata || {}),
+          target_exams: targetExams,
+          primary_exam: targetExams[0] || "KCET",
+          exam_details: examDetailsObj,
+        },
+      };
+
+      loginUser(updatedUser, isAdmin);
+
+      try {
+        await (supabase as any).from("profiles").upsert({
+          id: user.id,
+          target_exams: targetExams,
+          primary_exam: targetExams[0] || "KCET",
+          exam_details: examDetailsObj,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {}
+
+      toast.success("Exam preparation details saved!");
+    } catch {
+      toast.error("Failed to save exam details.");
+    } finally {
+      setSavingExams(false);
+    }
+  }
+
+  // Save 3: Study Preferences & Goals
+  async function handleSavePreferences(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!user) return;
+
+    setSavingPrefs(true);
+    try {
+      const studyGoalsObj = {
+        weekly_hours: weeklyHours,
+        daily_hours: dailyHours,
+        preferred_days: preferredDays,
+      };
+
+      const learningPreferencesObj = {
+        language: preferredLanguage,
+        theme: appTheme,
+        practice_mode: practiceMode,
+        difficulty: difficultyPreference,
+      };
+
+      const notificationPreferencesObj = {
+        study_reminders: studyReminders,
+        test_updates: testUpdates,
+        new_material: newMaterial,
+        personalized_tips: personalizedTips,
+      };
+
+      const updatedUser = {
+        ...user,
+        user_metadata: {
+          ...(user.user_metadata || {}),
+          study_goals: studyGoalsObj,
+          learning_preferences: learningPreferencesObj,
+          notification_preferences: notificationPreferencesObj,
+        },
+      };
+
+      loginUser(updatedUser, isAdmin);
+
+      // Also apply theme immediately if changed
+      if (appTheme === "Dark") {
+        document.documentElement.classList.add("dark");
+        localStorage.setItem("study-theme", "dark");
+      } else if (appTheme === "Light") {
+        document.documentElement.classList.remove("dark");
+        localStorage.setItem("study-theme", "light");
+      }
+
+      try {
+        await (supabase as any).from("profiles").upsert({
+          id: user.id,
+          study_goals: studyGoalsObj,
+          learning_preferences: learningPreferencesObj,
+          notification_preferences: notificationPreferencesObj,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {}
+
+      toast.success("Study preferences & goals saved successfully!");
+    } catch {
+      toast.error("Failed to save study preferences.");
+    } finally {
+      setSavingPrefs(false);
+    }
+  }
+
+  // Download user profile and learning data
+  function handleDownloadData() {
+    if (!user) return;
+    const exportData = {
+      profile: {
+        id: user.id,
+        name,
+        email,
+        phone,
+        location,
+        aboutMe,
+        avatarUrl,
+        targetExams,
+        examDetails: {
+          targetYear,
+          prepStage,
+          targetRank,
+          focusSubjects,
+        },
+        studyGoals: {
+          weeklyHours,
+          dailyHours,
+          preferredDays,
+        },
+        learningPreferences: {
+          preferredLanguage,
+          appTheme,
+          practiceMode,
+          difficultyPreference,
+        },
+        notificationPreferences: {
+          studyReminders,
+          testUpdates,
+          newMaterial,
+          personalizedTips,
+        },
+      },
+      learningMetrics: {
+        totalAttempts: attempts.length,
+        attempts,
+        bookmarksCount: bookmarkedCount,
+      },
+      exportedAt: new Date().toISOString(),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `study-at-bangalore-profile-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Data export downloaded successfully!");
+  }
+
+  // Delete account confirmation
+  async function handleConfirmDelete() {
+    try {
+      if (user?.id) {
+        await (supabase as any).from("profiles").delete().eq("id", user.id);
+      }
+    } catch {}
+    logout();
+    toast.success("Your account and associated profile have been removed.");
+    window.location.href = "/";
+  }
+
+  // Focus and scroll to Personal Info
+  function scrollToEdit() {
+    personalInfoRef.current?.scrollIntoView({ behavior: "smooth" });
+    const nameInput = personalInfoRef.current?.querySelector("input");
+    nameInput?.focus();
+  }
+
+  // Filter attempts based on selected timeframe
+  const filteredAttempts = attempts.filter((att) => {
+    if (timeFilter === "all") return true;
+    const days = timeFilter === "7" ? 7 : 30;
+    const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
+    return new Date(att.created_at).getTime() >= threshold;
+  });
+
+  // Analytics computation
+  const displayAttemptsCount = filteredAttempts.length;
+  const displayQuestionsCount = filteredAttempts.reduce(
+    (sum, a) =>
+      sum +
+      (a.total_questions ||
+        a.questions_count ||
+        (a.max_score > 0 ? Math.round(a.max_score / 4) : 10)),
+    0
+  );
+  const avgAccuracy =
+    displayAttemptsCount > 0
+      ? Math.round(
+          filteredAttempts.reduce(
+            (s, a) =>
+              s +
+              (a.percentage ??
+                a.percent ??
+                (a.score && a.max_score ? (a.score / a.max_score) * 100 : 0)),
+            0
+          ) / displayAttemptsCount
+        )
+      : 0;
+
+  const practiceAttempts = attempts.filter((a) => a.mode === "practice");
+  const mockAttempts = attempts.filter((a) => a.mode === "mock");
+
+  // Sign out handler
   function handleLogout() {
     logout();
     toast.success("Signed out successfully.");
@@ -165,14 +605,20 @@ export function ProfilePage() {
 
   if (!user) {
     return (
-      <div className="mx-auto max-w-md py-12 text-center">
-        <div className="surface p-8 rounded-2xl shadow-xl border">
-          <User className="mx-auto h-12 w-12 text-primary mb-3" />
-          <h1 className="text-xl font-bold">Student Profile & Dashboard</h1>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Please sign in to view your academic dashboard, attempt progression curve, and scores.
+      <div className="mx-auto max-w-md py-16 px-4 text-center">
+        <div className="rounded-2xl border border-border bg-card p-8 shadow-xl">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <User className="h-8 w-8" />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">Student Profile & Dashboard</h1>
+          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+            Please sign in to access your personal dashboard, exam targets, study goals, and score
+            progression analytics.
           </p>
-          <button onClick={() => navigate({ to: "/auth" })} className={`${btnPrimary} w-full mt-5 py-2.5`}>
+          <button
+            onClick={() => navigate({ to: "/auth" })}
+            className={`${btnPrimary} w-full mt-6 py-2.5 font-semibold`}
+          >
             Sign in to your account
           </button>
         </div>
@@ -180,221 +626,877 @@ export function ProfilePage() {
     );
   }
 
-  // Format attempts for progression curves by paper/track
-  const practiceAttempts = attempts.filter((a) => a.mode === "practice");
-  const mockAttempts = attempts.filter((a) => a.mode === "mock");
-
   return (
-    <div className="mx-auto max-w-4xl py-6 px-4 space-y-6">
-      {/* Header Profile Card */}
-      <div className="surface p-6 sm:p-7 rounded-2xl shadow-sm border border-border">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-          <div className="flex items-center gap-3">
-            <div className="h-14 w-14 rounded-full bg-brand text-primary-foreground flex items-center justify-center font-bold text-xl shadow-md overflow-hidden">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
-              ) : (
-                name.charAt(0).toUpperCase() || "S"
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold">{name || "Student"}</h1>
-                <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-semibold text-primary">
-                  {standard}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {email} {phone ? `· ${phone}` : ""}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {targetExams.map((ex) => (
-                  <span key={ex} className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-foreground border">
-                    🎯 {ex}
-                  </span>
-                ))}
-              </div>
-            </div>
+    <div className="mx-auto max-w-6xl py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fade-in">
+      {/* 1. PAGE HEADER */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-primary">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              YOUR PROFILE
+            </span>
           </div>
-          <button onClick={handleLogout} className={`${btnGhost} text-destructive hover:bg-destructive/10 text-xs gap-1`}>
-            <LogOut className="h-4 w-4" /> Sign out
-          </button>
+          <div className="mt-1 flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+              My Profile
+            </h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              Student
+            </span>
+          </div>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
+            Manage your personal details, exam preferences, and account settings.
+          </p>
         </div>
-
-        {/* Academic Details Form */}
-        <form onSubmit={handleSave} className="mt-5 space-y-5">
-          <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
-            <GraduationCap className="h-4 w-4 text-primary" /> Personal & Academic Credentials
-          </h2>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Enter your full name / username</label>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Preetham Jain"
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Email address (Verified)</label>
-              <input
-                type="email"
-                readOnly
-                value={email}
-                className="w-full rounded-xl border bg-muted px-3 py-2 text-sm opacity-80 cursor-not-allowed"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Class / Standard</label>
-              <select
-                value={standard}
-                onChange={(e) => setStandard(e.target.value)}
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="11th Standard">11th Standard (Class XI)</option>
-                <option value="12th Standard">12th Standard (Class XII)</option>
-                <option value="Target / Repeater">Target / Repeater Batch</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Subject Stream</label>
-              <select
-                value={stream}
-                onChange={(e) => setStream(e.target.value)}
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="PCMB">PCMB (Physics, Chem, Math, Biology)</option>
-                <option value="PCM">PCM (Physics, Chem, Math)</option>
-                <option value="PCB">PCB (Physics, Chem, Biology)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Mobile / Phone Number</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+91 9876543210"
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Age / Student Age</label>
-              <input
-                type="number"
-                min={12}
-                max={30}
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                placeholder="17"
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Profile Picture URL / Avatar</label>
-              <input
-                type="url"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="https://example.com/avatar.jpg"
-                className="w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-          </div>
-
-          {/* MULTI-SELECT PRIMARY TARGET EXAMINATIONS */}
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-sm font-bold text-foreground">
-                  Primary Target Examinations (Select Multiple)
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Select all examinations you are preparing for. You can choose more than one!
-                </p>
-              </div>
-              <span className="rounded-full bg-primary text-primary-foreground px-2.5 py-0.5 text-xs font-bold">
-                {targetExams.length} Selected
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
-              {EXAM_OPTIONS.map((exam) => {
-                const isSelected = targetExams.includes(exam.id);
-                return (
-                  <button
-                    key={exam.id}
-                    type="button"
-                    onClick={() => toggleExam(exam.id)}
-                    className={`flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all ${
-                      isSelected
-                        ? "border-primary bg-card text-foreground ring-2 ring-primary/30 shadow-xs"
-                        : "border-border bg-background/50 hover:bg-background opacity-75"
-                    }`}
-                  >
-                    <div className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                      isSelected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground"
-                    }`}>
-                      {isSelected && <CheckCircle className="h-3 w-3" />}
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold">{exam.label}</p>
-                      <p className="text-[10px] text-muted-foreground line-clamp-1">{exam.full}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex justify-end pt-2">
-            <button disabled={saving} className={`${btnPrimary} px-6 py-2.5 gap-2 shadow-md`}>
-              <Save className="h-4 w-4" /> {saving ? "Saving Details..." : "Save Academic Profile"}
-            </button>
-          </div>
-        </form>
       </div>
 
-      {/* STUDENT PERSONAL DASHBOARD & ATTEMPT PROGRESSION CURVE */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <History className="h-5 w-5 text-primary" /> My Exam & Practice Journey
-          </h2>
-          <Link to="/practice" className={`${btnGhost} text-xs text-primary`}>
+      {/* 2. PROFILE HERO SUMMARY CARD */}
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-xs transition-all">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
+            <AvatarUpload
+              userId={user.id}
+              avatarUrl={avatarUrl}
+              displayName={name}
+              email={email}
+              size="xl"
+              showRemoveButton={true}
+              onAvatarChange={handleAvatarChange}
+              onAvatarRemove={handleAvatarRemove}
+            />
+
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+                  {name || "Student"}
+                </h2>
+              </div>
+              <p className="text-xs sm:text-sm font-medium text-muted-foreground line-clamp-1">
+                {aboutMe || "Aspiring Engineer & Problem Solver"}
+              </p>
+
+              <div className="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-3 sm:gap-4 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5 text-primary shrink-0" />
+                  {email}
+                </span>
+                {phone && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 text-primary shrink-0" />
+                    {phone}
+                  </span>
+                )}
+                {location && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+                    {location}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-center md:justify-end shrink-0">
+            <button
+              onClick={scrollToEdit}
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors shadow-2xs"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit Profile
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. TWO-COLUMN GRID LAYOUT */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* ======================================================== */}
+        {/* MAIN COLUMN (LEFT 2 COLUMNS)                            */}
+        {/* ======================================================== */}
+        <div className="lg:col-span-2 space-y-8">
+          {/* CARD 1: PERSONAL INFORMATION */}
+          <div
+            ref={personalInfoRef}
+            className="rounded-2xl border border-border bg-card p-6 sm:p-7 shadow-xs space-y-6"
+          >
+            <div className="flex items-center gap-3 border-b border-border pb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <User className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Personal Information</h3>
+                <p className="text-xs text-muted-foreground">
+                  Update your personal details and public profile
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSavePersonal} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Full Name */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Full Name <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Rahul Sharma"
+                    className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
+                  />
+                </div>
+
+                {/* Email Address with Change Email Trigger */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-foreground">
+                      Email Address
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setChangeEmailOpen(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline"
+                    >
+                      Change Email
+                    </button>
+                  </div>
+                  <input
+                    type="email"
+                    readOnly
+                    value={email}
+                    className="w-full rounded-xl border border-border bg-muted/60 px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
+                  />
+                </div>
+
+                {/* Phone Number */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
+                  />
+                </div>
+
+                {/* Location (Optional) */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Location (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g. Bengaluru, Karnataka"
+                    className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* About Me */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-foreground">
+                    About Me (Optional)
+                  </label>
+                  <span className="text-[11px] text-muted-foreground">
+                    {aboutMe.length}/300
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  maxLength={300}
+                  value={aboutMe}
+                  onChange={(e) => setAboutMe(e.target.value)}
+                  placeholder="Share a short bio or study focus..."
+                  className="w-full rounded-xl border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const meta = (user.user_metadata || {}) as Record<string, any>;
+                    setName(meta["full_name"] || meta["display_name"] || "");
+                    setPhone(meta["phone"] || "");
+                    setLocation(meta["location"] || "Bengaluru, Karnataka");
+                    setAboutMe(meta["about_me"] || "");
+                  }}
+                  className="rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPersonal}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {savingPersonal ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* CARD 2: EXAM PREPARATION */}
+          <div className="rounded-2xl border border-border bg-card p-6 sm:p-7 shadow-xs space-y-6">
+            <div className="flex items-center gap-3 border-b border-border pb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Target className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Exam Preparation</h3>
+                <p className="text-xs text-muted-foreground">
+                  Your target exams and preparation details
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveExams} className="space-y-5">
+              {/* Target Exams Pills */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-foreground">
+                    Target Examinations
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setAddExamOpen(true)}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Exam
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {targetExams.map((exam, index) => (
+                    <span
+                      key={exam}
+                      className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-bold text-foreground transition-all"
+                    >
+                      {exam}
+                      {index === 0 && (
+                        <span className="rounded bg-primary px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-primary-foreground">
+                          Primary
+                        </span>
+                      )}
+                      {targetExams.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTargetExams(targetExams.filter((e) => e !== exam))
+                          }
+                          className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
+                          title="Remove exam"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Prep Details Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                {/* Target Exam Year */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Target Exam Year
+                  </label>
+                  <select
+                    value={targetYear}
+                    onChange={(e) => setTargetYear(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                  >
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                    <option value="2028">2028</option>
+                  </select>
+                </div>
+
+                {/* Preparation Stage */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Preparation Stage
+                  </label>
+                  <select
+                    value={prepStage}
+                    onChange={(e) => setPrepStage(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                  >
+                    <option value="Beginner - Just Started">Beginner - Just Started</option>
+                    <option value="Intermediate - Covering Syllabus">
+                      Intermediate - Covering Syllabus
+                    </option>
+                    <option value="Advanced - Revision & Mock Tests">
+                      Advanced - Revision & Mock Tests
+                    </option>
+                    <option value="Target / Repeater Batch">Target / Repeater Batch</option>
+                  </select>
+                </div>
+
+                {/* Target Rank / Score */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Target Rank / Score
+                  </label>
+                  <input
+                    type="text"
+                    value={targetRank}
+                    onChange={(e) => setTargetRank(e.target.value)}
+                    placeholder="e.g. Top 1,000"
+                    className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              {/* Focus Subjects */}
+              <div className="space-y-2 pt-2">
+                <label className="block text-xs font-semibold text-foreground">
+                  Focus Subjects
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_SUBJECTS.map((sub) => {
+                    const active = focusSubjects.includes(sub);
+                    return (
+                      <button
+                        key={sub}
+                        type="button"
+                        onClick={() =>
+                          setFocusSubjects(
+                            active
+                              ? focusSubjects.length > 1
+                                ? focusSubjects.filter((s) => s !== sub)
+                                : focusSubjects
+                              : [...focusSubjects, sub]
+                          )
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                          active
+                            ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                            : "border-border bg-background text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {active && <CheckCircle2 className="h-3.5 w-3.5" />}
+                        {sub}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={savingExams}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {savingExams ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* CARD 3: STUDY PREFERENCES & GOALS */}
+          <div className="rounded-2xl border border-border bg-card p-6 sm:p-7 shadow-xs space-y-6">
+            <div className="flex items-center gap-3 border-b border-border pb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">
+                  Study Preferences & Goals
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Set your study targets and customise your experience
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSavePreferences} className="space-y-6">
+              {/* Section 1: Study Goals */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-primary" /> Study Goals
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      Weekly Study Goal (Hours)
+                    </label>
+                    <select
+                      value={weeklyHours}
+                      onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                    >
+                      <option value={10}>10 Hours / week</option>
+                      <option value={15}>15 Hours / week</option>
+                      <option value={20}>20 Hours / week</option>
+                      <option value={24}>24 Hours / week (Recommended)</option>
+                      <option value={30}>30 Hours / week</option>
+                      <option value={40}>40 Hours / week (Intensive)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      Daily Study Target (Hours)
+                    </label>
+                    <select
+                      value={dailyHours}
+                      onChange={(e) => setDailyHours(Number(e.target.value))}
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                    >
+                      <option value={2}>2 Hours / day</option>
+                      <option value={3}>3 Hours / day</option>
+                      <option value={4}>4 Hours / day (Balanced)</option>
+                      <option value={5}>5 Hours / day</option>
+                      <option value={6}>6 Hours / day</option>
+                      <option value={8}>8 Hours / day (Full Time)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Preferred Study Days */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1.5">
+                    Preferred Study Days
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {DAYS_OF_WEEK.map((day) => {
+                      const active = preferredDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() =>
+                            setPreferredDays(
+                              active
+                                ? preferredDays.length > 1
+                                  ? preferredDays.filter((d) => d !== day)
+                                  : preferredDays
+                                : [...preferredDays, day]
+                            )
+                          }
+                          className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                            active
+                              ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                              : "border-border bg-background text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Learning Preferences */}
+              <div className="space-y-3 pt-2 border-t border-border">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 pt-2">
+                  <BookOpen className="h-3.5 w-3.5 text-primary" /> Learning Preferences
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      Preferred Language
+                    </label>
+                    <select
+                      value={preferredLanguage}
+                      onChange={(e) => setPreferredLanguage(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                    >
+                      <option value="English">English</option>
+                      <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
+                      <option value="Hindi">Hindi (हिन्दी)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      App Theme
+                    </label>
+                    <select
+                      value={appTheme}
+                      onChange={(e) => setAppTheme(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                    >
+                      <option value="System">System Default</option>
+                      <option value="Light">Light</option>
+                      <option value="Dark">Dark</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      Default Practice Mode
+                    </label>
+                    <select
+                      value={practiceMode}
+                      onChange={(e) => setPracticeMode(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                    >
+                      <option value="Timed Exam Simulation">Timed Exam Simulation</option>
+                      <option value="Relaxed Learning">Relaxed Learning</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      Question Difficulty Preference
+                    </label>
+                    <select
+                      value={difficultyPreference}
+                      onChange={(e) => setDifficultyPreference(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                    >
+                      <option value="Mixed (Recommended)">Mixed (Recommended)</option>
+                      <option value="Easy">Easy (Foundation)</option>
+                      <option value="Medium">Medium (Exam Level)</option>
+                      <option value="Hard">Hard (Rank Booster)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Notification Preferences */}
+              <div className="space-y-3 pt-2 border-t border-border">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 pt-2">
+                  <Shield className="h-3.5 w-3.5 text-primary" /> Notifications & Alerts
+                </h4>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+                    <div>
+                      <p className="text-xs font-bold text-foreground">Study reminders</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Daily study alerts & schedule reminders
+                      </p>
+                    </div>
+                    <Switch
+                      checked={studyReminders}
+                      onCheckedChange={setStudyReminders}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+                    <div>
+                      <p className="text-xs font-bold text-foreground">Test & Exam updates</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Important deadlines and score notifications
+                      </p>
+                    </div>
+                    <Switch
+                      checked={testUpdates}
+                      onCheckedChange={setTestUpdates}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+                    <div>
+                      <p className="text-xs font-bold text-foreground">New study material</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Alerts when new questions or revision notes are published
+                      </p>
+                    </div>
+                    <Switch
+                      checked={newMaterial}
+                      onCheckedChange={setNewMaterial}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+                    <div>
+                      <p className="text-xs font-bold text-foreground">Personalised tips</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        AI tutor recommendations and weakness analysis
+                      </p>
+                    </div>
+                    <Switch
+                      checked={personalizedTips}
+                      onCheckedChange={setPersonalizedTips}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={savingPrefs}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {savingPrefs ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* SECONDARY COLUMN (RIGHT 1 COLUMN)                       */}
+        {/* ======================================================== */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* CARD 4: LEARNING OVERVIEW */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-bold text-foreground">Learning Overview</h3>
+              </div>
+              <select
+                value={timeFilter}
+                onChange={(e) => setTimeFilter(e.target.value as any)}
+                className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium outline-none"
+              >
+                <option value="30">Last 30 days</option>
+                <option value="7">Last 7 days</option>
+                <option value="all">All time</option>
+              </select>
+            </div>
+
+            {/* 2x2 Metric Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground">
+                  Tests Attempted
+                </p>
+                <p className="text-xl font-extrabold text-foreground">
+                  {displayAttemptsCount}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground">
+                  Questions Attempted
+                </p>
+                <p className="text-xl font-extrabold text-foreground">
+                  {displayQuestionsCount.toLocaleString()}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground">
+                  Average Accuracy
+                </p>
+                <p className="text-xl font-extrabold text-foreground">
+                  {avgAccuracy}%
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground">
+                  Saved Questions
+                </p>
+                <p className="text-xl font-extrabold text-foreground">
+                  {bookmarkedCount}
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to="/performance"
+              className="inline-flex items-center justify-center gap-1.5 w-full rounded-xl border border-primary/20 bg-primary/5 py-2.5 text-xs font-bold text-primary hover:bg-primary/10 transition-colors"
+            >
+              View Detailed Analytics <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+
+          {/* CARD 5: QUICK LINKS */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
+            <div className="flex items-center gap-2">
+              <Compass className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-bold text-foreground">Quick Links</h3>
+            </div>
+
+            <div className="divide-y divide-border">
+              <Link
+                to="/performance"
+                className="flex items-center justify-between py-3 text-xs font-semibold text-foreground hover:text-primary transition-colors group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <TrendingUp className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  Performance Analytics
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+
+              <Link
+                to="/mock-tests"
+                className="flex items-center justify-between py-3 text-xs font-semibold text-foreground hover:text-primary transition-colors group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <History className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  Full Mock Tests
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+
+              <Link
+                to="/practice"
+                className="flex items-center justify-between py-3 text-xs font-semibold text-foreground hover:text-primary transition-colors group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Target className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  Mistake Notebook / Practice
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+
+              <Link
+                to="/revision"
+                className="flex items-center justify-between py-3 text-xs font-semibold text-foreground hover:text-primary transition-colors group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <BookOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  Revision Planner
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+            </div>
+          </div>
+
+          {/* CARD 6: ACCOUNT, PRIVACY & SECURITY */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-bold text-foreground">
+                Account, Privacy & Security
+              </h3>
+            </div>
+
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={() => setChangePasswordOpen(true)}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-muted text-left transition-colors"
+              >
+                <span className="flex items-center gap-2.5 text-xs font-semibold text-foreground">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  Change Password
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPrivacyOpen(true)}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-muted text-left transition-colors"
+              >
+                <span className="flex items-center gap-2.5 text-xs font-semibold text-foreground">
+                  <Shield className="h-4 w-4 text-muted-foreground" />
+                  Privacy Settings
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadData}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-muted text-left transition-colors"
+              >
+                <span className="flex items-center gap-2.5 text-xs font-semibold text-foreground">
+                  <Download className="h-4 w-4 text-muted-foreground" />
+                  Download My Data
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDeleteAccountOpen(true)}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-destructive/10 text-destructive text-left transition-colors"
+              >
+                <span className="flex items-center gap-2.5 text-xs font-semibold">
+                  <Trash2 className="h-4 w-4" />
+                  Delete Account
+                </span>
+                <ChevronRight className="h-4 w-4 opacity-70" />
+              </button>
+
+              <div className="pt-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-destructive/20 text-destructive hover:bg-destructive/10 text-xs font-semibold transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. STUDENT PERSONAL DASHBOARD & ATTEMPT PROGRESSION CURVE */}
+      <div className="rounded-2xl border border-border bg-card p-6 sm:p-7 shadow-xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-4">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2 text-foreground">
+              <History className="h-5 w-5 text-primary" /> My Exam & Practice Journey
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Track your attempt attendance progression, test milestone marks, and mastery curve.
+            </p>
+          </div>
+          <Link
+            to="/practice"
+            className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+          >
             Start New Practice Set →
           </Link>
         </div>
 
         {attempts.length === 0 ? (
-          <div className="surface p-6 rounded-2xl border text-center space-y-3">
+          <div className="p-8 rounded-xl border border-dashed border-border text-center space-y-3">
             <Award className="mx-auto h-10 w-10 text-muted-foreground" />
-            <h3 className="text-base font-bold">No Practice or Exam Attempts Yet</h3>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Once you take a practice test or mock exam, your score history, attempt attendance count (Attempt 1, Attempt 2...), and progression curve will appear here.
+            <h3 className="text-base font-bold text-foreground">
+              No Practice or Exam Attempts Yet
+            </h3>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
+              Once you take a practice test or mock exam, your score history, attempt attendance
+              count (Attempt 1, Attempt 2...), and progression curve will appear here.
             </p>
-            <Link to="/practice" className={`${btnPrimary} inline-flex mt-2`}>
+            <Link
+              to="/practice"
+              className={`${btnPrimary} inline-flex mt-2 text-xs font-semibold px-4 py-2`}
+            >
               Start Easy Practice Test
             </Link>
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* Practice Curve Card */}
+          <div className="space-y-6">
             <AttemptProgression
               paperName="Mastery Practice"
               level="easy"
               targetThreshold={getMasteryThreshold()}
-              attempts={practiceAttempts.map((a, idx) => ({
+              attempts={practiceAttempts.map((a) => ({
                 id: a.id,
                 level: a.level || "easy",
                 percent: a.percent ?? a.percentage ?? 0,
@@ -404,13 +1506,12 @@ export function ProfilePage() {
               }))}
             />
 
-            {/* Mock Tests Curve Card if attended */}
             {mockAttempts.length > 0 && (
               <AttemptProgression
                 paperName="Full Mock Exam"
                 level="hard"
                 targetThreshold={80}
-                attempts={mockAttempts.map((a, idx) => ({
+                attempts={mockAttempts.map((a) => ({
                   id: a.id,
                   level: a.level || "hard",
                   percent: a.percent ?? a.percentage ?? 0,
@@ -423,6 +1524,51 @@ export function ProfilePage() {
           </div>
         )}
       </div>
+
+      {/* 5. MODAL DIALOGS */}
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onOpenChange={setChangePasswordOpen}
+      />
+
+      <ChangeEmailDialog
+        open={changeEmailOpen}
+        currentEmail={email}
+        onOpenChange={setChangeEmailOpen}
+      />
+
+      <AddExamDialog
+        open={addExamOpen}
+        selectedExams={targetExams}
+        onOpenChange={setAddExamOpen}
+        onSelectExams={(newExams) => {
+          setTargetExams(newExams);
+          if (user) {
+            loginUser(
+              {
+                ...user,
+                user_metadata: {
+                  ...(user.user_metadata || {}),
+                  target_exams: newExams,
+                  primary_exam: newExams[0] || "KCET",
+                },
+              },
+              isAdmin
+            );
+          }
+        }}
+      />
+
+      <PrivacySettingsDialog
+        open={privacyOpen}
+        onOpenChange={setPrivacyOpen}
+      />
+
+      <DeleteAccountDialog
+        open={deleteAccountOpen}
+        onOpenChange={setDeleteAccountOpen}
+        onConfirmDelete={handleConfirmDelete}
+      />
     </div>
   );
 }

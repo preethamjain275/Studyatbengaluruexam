@@ -36,7 +36,7 @@ export const Route = createFileRoute("/auth")({
 
 type AuthMode = "in" | "up" | "forgot" | "reset";
 
-export function AuthPage() {
+function AuthPage() {
   const { next, mode: searchMode } = Route.useSearch();
   const navigate = useNavigate();
   const { user, loginUser } = useAuth();

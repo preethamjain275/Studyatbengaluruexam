@@ -18,6 +18,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 );
 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS target_exams text[] DEFAULT ARRAY[]::text[];
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS about_me text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS location text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS primary_exam text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS exam_details jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS study_goals jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS learning_preferences jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notification_preferences jsonb DEFAULT '{}'::jsonb;
 
 -- Enable RLS and create permissive policies for profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -25,6 +33,26 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Public profiles access') THEN
     CREATE POLICY "Public profiles access" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- 1a. Storage bucket for user profile avatars
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  ARRAY['image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 5242880,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp'];
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND schemaname = 'storage' AND policyname = 'Public avatars access') THEN
+    CREATE POLICY "Public avatars access" ON storage.objects FOR ALL USING (bucket_id = 'avatars') WITH CHECK (bucket_id = 'avatars');
   END IF;
 END $$;
 

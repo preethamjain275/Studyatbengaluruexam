@@ -7,6 +7,8 @@ import { ThemeToggle } from "./theme";
 import { EXAMS } from "@/lib/exams";
 import { Logo } from "./Logo";
 import { useAuth } from "@/hooks/use-auth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getInitials } from "@/lib/avatar";
 
 export const NAV = [
   { to: "/", label: "Home", icon: Home },
@@ -25,7 +27,13 @@ export function Header() {
   const [search, setSearch] = useState(false);
   const [notif, setNotif] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [userMenu, setUserMenu] = useState(false);
   const { user, logout, isAdmin } = useAuth();
+
+  const metadata = (user?.user_metadata || {}) as Record<string, any>;
+  const avatarUrl = metadata["avatar_url"];
+  const displayName = metadata["full_name"] || metadata["display_name"] || user?.email?.split("@")[0] || "Student";
+  const initials = getInitials(displayName, user?.email);
 
   return (
     <>
@@ -67,9 +75,74 @@ export function Header() {
                 <span className="hidden sm:inline">Admin</span>
               </Link>
             )}
-            <Link to={user ? "/profile" : "/auth"} aria-label={user ? "Profile" : "Sign in"} className="flex h-9 w-9 items-center justify-center rounded-full bg-brand text-primary-foreground shadow-sm hover:opacity-90 transition-opacity">
-              <User className="h-4 w-4" />
-            </Link>
+            {user ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setUserMenu((v) => !v)}
+                  aria-label="User Account Menu"
+                  className="flex h-9 w-9 items-center justify-center rounded-full ring-2 ring-primary/20 hover:ring-primary/50 transition-all cursor-pointer overflow-hidden shadow-xs"
+                >
+                  <Avatar className="h-full w-full">
+                    {avatarUrl ? (
+                      <AvatarImage src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                    ) : null}
+                    <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+
+                {userMenu && (
+                  <div
+                    className="surface absolute right-0 top-11 w-56 rounded-2xl p-2 shadow-xl border animate-in fade-in zoom-in-95 z-50"
+                    onClick={() => setUserMenu(false)}
+                  >
+                    <div className="px-3 py-2 border-b mb-1">
+                      <p className="text-xs font-bold text-foreground truncate">{displayName}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <Link
+                      to="/profile"
+                      className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-accent hover:text-primary transition-colors"
+                    >
+                      <User className="h-3.5 w-3.5" /> My Profile
+                    </Link>
+                    <Link
+                      to="/practice"
+                      className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-accent transition-colors"
+                    >
+                      <NotebookPen className="h-3.5 w-3.5" /> Practice
+                    </Link>
+                    <Link
+                      to="/mock-tests"
+                      className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium hover:bg-accent transition-colors"
+                    >
+                      <Timer className="h-3.5 w-3.5" /> Mock Tests
+                    </Link>
+                    <div className="border-t my-1" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logout();
+                        window.location.href = "/";
+                      }}
+                      className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" /> Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link
+                to="/auth"
+                aria-label="Sign in"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-brand text-primary-foreground shadow-sm hover:opacity-90 transition-opacity"
+              >
+                <User className="h-4 w-4" />
+              </Link>
+            )}
             <button onClick={() => setDrawer(true)} aria-label="Open menu" className="icon-3d h-9 w-9 xl:hidden"><Menu className="h-4 w-4" /></button>
           </div>
         </div>
@@ -121,7 +194,36 @@ export function Header() {
                 </Link>
               )}
               {user ? (
-                <button onClick={() => { logout(); setDrawer(false); window.location.href = "/"; }} className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium hover:bg-accent">Sign out ({(user.user_metadata as Record<string, any>)?.['full_name'] || user.email})</button>
+                <div className="space-y-2">
+                  <Link
+                    to="/profile"
+                    onClick={() => setDrawer(false)}
+                    className="flex items-center gap-3 rounded-xl p-2 bg-muted/50 hover:bg-muted transition-colors"
+                  >
+                    <Avatar className="h-9 w-9 ring-1 ring-border">
+                      {avatarUrl ? (
+                        <AvatarImage src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                      ) : null}
+                      <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{displayName}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                  </Link>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setDrawer(false);
+                      window.location.href = "/";
+                    }}
+                    className="w-full rounded-xl px-3 py-2 text-left text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    Sign out
+                  </button>
+                </div>
               ) : (
                 <Link to="/auth" onClick={() => setDrawer(false)} className="block rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">Sign in</Link>
               )}
