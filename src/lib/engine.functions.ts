@@ -393,19 +393,27 @@ export const saveProgress = createServerFn({ method: "POST" })
         if (val && typeof val === "object" && !Array.isArray(val)) {
           const clean: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
-            if (!k.startsWith("_")) clean[k] = v;
+            if (!k.startsWith("_") && v != null) clean[k] = v;
           }
           return clean;
         }
-        return val;
-      }, z.record(z.string(), answerValueSchema)),
+        return val ?? {};
+      }, z.record(z.string(), z.any())),
       statuses: z.record(z.string(), z.object({ visited: z.boolean().optional(), marked: z.boolean().optional() })).default({}),
       events: z.array(z.object({ type: z.string().max(40), at: z.number() })).max(50).default([]),
     }).parse(d),
   )
   .handler(async ({ data, context }: { data: any; context: any }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: att } = await supabaseAdmin.from("attempts").select("*").eq("id", data.id).maybeSingle();
+    let att: any = null;
+    try {
+      const res = await context.supabase.from("attempts").select("*").eq("id", data.id).maybeSingle();
+      att = res.data;
+    } catch {}
+    if (!att) {
+      const res = await supabaseAdmin.from("attempts").select("*").eq("id", data.id).maybeSingle();
+      att = res.data;
+    }
     if (!att) throw new Error("Attempt not found");
 
     // Enforce ownership
@@ -425,8 +433,19 @@ export const saveProgress = createServerFn({ method: "POST" })
 
     const rawAnswers = (att.answers ?? {}) as Record<string, any>;
     const questionIds: string[] = att.question_ids || rawAnswers?.["_meta"]?.["question_ids"] || [];
-    const allowed = new Set(questionIds);
-    const validStudentAnswers = Object.fromEntries(Object.entries(data.answers).filter(([k]) => allowed.has(k)));
+    const allowed = questionIds.length > 0 ? new Set(questionIds) : null;
+
+    const validStudentAnswers: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data.answers || {})) {
+      if (k.startsWith("_")) continue;
+      if (!allowed || allowed.has(k)) {
+        validStudentAnswers[k] = v;
+      }
+    }
+
+    const validStatuses = Object.fromEntries(
+      Object.entries(data.statuses || {}).filter(([k]) => !k.startsWith("_") && (!allowed || allowed.has(k)))
+    );
 
     // Preserve metadata and store statuses safely inside answers JSONB
     const mergedAnswers = {
@@ -436,10 +455,9 @@ export const saveProgress = createServerFn({ method: "POST" })
         ...(rawAnswers?.["_meta"] || {}),
         updated_at: new Date().toISOString(),
       },
-      _statuses: data.statuses,
+      _statuses: validStatuses,
     };
 
-    const validStatuses = Object.fromEntries(Object.entries(data.statuses).filter(([k]) => allowed.has(k)));
     const events = [...((att.events as unknown[]) ?? []), ...data.events].slice(-500);
 
     // Update payload with canonical columns
@@ -471,12 +489,12 @@ export const submitAttempt = createServerFn({ method: "POST" })
         if (val && typeof val === "object" && !Array.isArray(val)) {
           const clean: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
-            if (!k.startsWith("_")) clean[k] = v;
+            if (!k.startsWith("_") && v != null) clean[k] = v;
           }
           return clean;
         }
-        return val;
-      }, z.record(z.string(), answerValueSchema)).optional(),
+        return val ?? {};
+      }, z.record(z.string(), z.any())).optional(),
       statuses: z.record(z.string(), z.object({ visited: z.boolean().optional(), marked: z.boolean().optional() })).optional(),
     }).parse(d)
   )

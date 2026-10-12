@@ -7,8 +7,8 @@ import { QUESTIONS_BY_ID } from "@/data/questions-bank";
 export async function finalizeAttempt(
   attemptId: string,
   userId?: string,
-  clientAnswers?: Record<string, string | string[]>,
-  clientStatuses?: Record<string, { visited?: boolean; marked?: boolean }>
+  clientAnswers?: Record<string, any>,
+  clientStatuses?: Record<string, any>
 ) {
   const { data: att } = await supabaseAdmin.from("attempts").select("*").eq("id", attemptId).maybeSingle();
   if (!att) throw new Error("Attempt not found");
@@ -39,7 +39,7 @@ export async function finalizeAttempt(
   }
 
   // Merge in fresh clientAnswers if supplied during submission
-  if (clientAnswers) {
+  if (clientAnswers && typeof clientAnswers === "object") {
     for (const [k, v] of Object.entries(clientAnswers)) {
       if (!k.startsWith("_") && v != null) {
         studentAnswers[k] = v;
@@ -108,14 +108,18 @@ export async function finalizeAttempt(
     answers: finalAnswers,
   };
 
-  // Try updating with full columns first (in case percent/result/etc. exist), fallback to base payload
-  const fullUpdatePayload = {
+  // Try updating with full columns first (in case percent/result/statuses exist), fallback to base payload
+  const fullUpdatePayload: Record<string, any> = {
     ...baseUpdatePayload,
     percent: result.percent,
     max_score: result.maxScore,
     submitted_at: submittedAt,
     result: result,
   };
+
+  if (clientStatuses && typeof clientStatuses === "object") {
+    fullUpdatePayload["statuses"] = clientStatuses;
+  }
 
   const { data: updatedFull, error: errFull } = await supabaseAdmin
     .from("attempts")

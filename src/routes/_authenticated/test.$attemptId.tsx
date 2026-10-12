@@ -130,14 +130,14 @@ function TestPage() {
       const cleanAnswers = Object.fromEntries(
         Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
       );
-      // Submit atomically with the latest answer snapshot so answers are never lost
+      await save({ data: { id: attemptId, answers: cleanAnswers, statuses: meta, events: events.current.splice(0) } }).catch(() => null);
       await submit({ data: { id: attemptId, answers: cleanAnswers, statuses: meta } });
       localStorage.removeItem(backKey);
       navigate({ to: "/results/$attemptId", params: { attemptId } });
     } catch {
       submittedRef.current = false; setSubmitting(false); setWarning("Submission failed - check your connection and try again. Your answers are kept on this device.");
     }
-  }, [answers, meta, attemptId, submit, navigate, backKey]);
+  }, [answers, meta, attemptId, save, submit, navigate, backKey]);
 
   // Authoritative countdown using server deadline.
   const left = remainingMs(attempt.deadline, now + offset.current);

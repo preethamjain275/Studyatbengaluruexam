@@ -47,9 +47,12 @@ function ResultPage() {
   const attempt = data.attempt;
   const questions = data.questions || [];
   const showSolutions = data.showSolutions ?? true;
+  const cleanAnswers = Object.fromEntries(
+    Object.entries(attempt?.answers || {}).filter(([k]) => !k.startsWith('_'))
+  );
   const result = (data.result && data.result.outcomes) ? data.result : computeResult(
     questions.map((q: any) => ({ id: q.id, qtype: q.qtype, correct: q.correct, subject: q.subject, chapter: q.chapter })),
-    attempt?.answers || {},
+    cleanAnswers,
     () => PRACTICE_MARKING
   );
   const outcomes = result?.outcomes || {};
@@ -229,16 +232,14 @@ function ResultPage() {
                           <p className="text-xs font-semibold uppercase text-muted-foreground">Options:</p>
                           <ul className="space-y-1">
                             {q.options.map((op: any) => {
-                              const opIdStr = String(op.id).toLowerCase();
-                              const isCorrectOpt = Array.isArray(q.correct)
-                                ? (q.correct as string[]).map((c) => String(c).toLowerCase()).includes(opIdStr)
-                                : String(q.correct ?? "").toLowerCase() === opIdStr;
-
-                              const userAns = attempt.answers?.[q.id];
+                              const userAns = attempt?.answers?.[q.id];
                               const isUserChosen = Array.isArray(userAns)
-                                ? (userAns as string[]).map((c) => String(c).toLowerCase()).includes(opIdStr)
-                                : String(userAns ?? "").toLowerCase() === opIdStr;
+                                ? userAns.map(String).map((s: string) => s.trim().toLowerCase()).includes(String(op.id).trim().toLowerCase())
+                                : userAns != null && String(userAns).trim().toLowerCase() === String(op.id).trim().toLowerCase();
 
+                              const isCorrectOpt = Array.isArray(q.correct)
+                                ? q.correct.map(String).map((s: string) => s.trim().toLowerCase()).includes(String(op.id).trim().toLowerCase())
+                                : q.correct != null && String(q.correct).trim().toLowerCase() === String(op.id).trim().toLowerCase();
                               return (
                                 <li key={op.id} className={`p-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
                                   isCorrectOpt

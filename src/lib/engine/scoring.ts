@@ -21,14 +21,14 @@ export function scoreResponse(qtype: QType, correct: Correct, response: Response
     return ok ? { outcome: "correct", marks: m.correct } : { outcome: "incorrect", marks: m.incorrect };
   }
   if (qtype === "multiple") {
-    const key = new Set(correct as string[]);
-    const chosen = [...new Set(response as string[])];
+    const key = new Set(Array.isArray(correct) ? (correct as string[]).map((k) => String(k).trim().toLowerCase()) : [String(correct).trim().toLowerCase()]);
+    const chosen = [...new Set(Array.isArray(response) ? (response as string[]).map((k) => String(k).trim().toLowerCase()) : [String(response).trim().toLowerCase()])];
     if (chosen.some((c) => !key.has(c))) return { outcome: "incorrect", marks: m.incorrect };
     if (chosen.length === key.size) return { outcome: "correct", marks: m.correct };
     const per = m.partialPerCorrectOption ?? 0;
     return { outcome: "partial", marks: per * chosen.length };
   }
-  const ok = String(response) === String(correct);
+  const ok = String(response).trim().toLowerCase() === String(correct).trim().toLowerCase();
   return ok ? { outcome: "correct", marks: m.correct } : { outcome: "incorrect", marks: m.incorrect };
 }
 
