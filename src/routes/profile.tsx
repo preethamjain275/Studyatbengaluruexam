@@ -28,6 +28,8 @@ import {
   CheckCircle2,
   Loader2,
   ExternalLink,
+  Bookmark,
+  Trophy,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { btnGhost, btnPrimary } from "@/components/site/ui";
@@ -35,6 +37,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AttemptProgression } from "@/components/site/AttemptProgression";
 import { getMasteryThreshold } from "@/lib/engine/state";
+import { getUserProfile, updateUserProfile, getBookmarks } from "@/lib/engine.functions";
 import { AvatarUpload } from "@/components/site/AvatarUpload";
 import {
   ChangePasswordDialog,
@@ -129,27 +132,31 @@ function ProfilePage() {
   const [timeFilter, setTimeFilter] = useState<"30" | "7" | "all">("30");
   const [bookmarkedCount, setBookmarkedCount] = useState(0);
 
-  // Load user data on mount
+  // Load user data on mount and whenever user/profile changes
   useEffect(() => {
     if (!user) return;
 
     setEmail(user.email ?? "");
-    const meta = (user.user_metadata || {}) as Record<string, any>;
 
-    setName(meta["full_name"] || meta["display_name"] || user.email?.split("@")[0] || "Student");
-    setPhone(meta["phone"] || "");
-    setLocation(meta["location"] || "Bengaluru, Karnataka");
+    // Prioritize values from canonical profile, then user_metadata
+    const meta = (user.user_metadata || {}) as Record<string, any>;
+    const p = profile as any;
+
+    setName(p?.display_name || meta["full_name"] || meta["display_name"] || user.email?.split("@")[0] || "Student");
+    setPhone(p?.phone || meta["phone"] || "");
+    setLocation(p?.location || meta["location"] || "Bengaluru, Karnataka");
     setAboutMe(
-      meta["about_me"] ||
+      p?.about_me ||
+        meta["about_me"] ||
         "Dedicated student preparing for engineering and medical entrance examinations."
     );
-    setAvatarUrl(meta["avatar_url"] || "");
+    setAvatarUrl(p?.avatar_url || meta["avatar_url"] || "");
 
     const loadedExams =
-      meta["target_exams"] || (meta["target_exam"] ? [meta["target_exam"]] : ["KCET", "JEE Main"]);
+      p?.target_exams || meta["target_exams"] || (meta["target_exam"] ? [meta["target_exam"]] : ["KCET", "JEE Main"]);
     setTargetExams(Array.isArray(loadedExams) ? loadedExams : [loadedExams]);
 
-    const examDetailsMeta = meta["exam_details"];
+    const examDetailsMeta = p?.exam_details || meta["exam_details"];
     if (examDetailsMeta) {
       if (examDetailsMeta["target_year"]) setTargetYear(examDetailsMeta["target_year"]);
       if (examDetailsMeta["stage"]) setPrepStage(examDetailsMeta["stage"]);
@@ -158,7 +165,7 @@ function ProfilePage() {
         setFocusSubjects(examDetailsMeta["focus_subjects"]);
     }
 
-    const studyGoalsMeta = meta["study_goals"];
+    const studyGoalsMeta = p?.study_goals || meta["study_goals"];
     if (studyGoalsMeta) {
       if (studyGoalsMeta["weekly_hours"]) setWeeklyHours(studyGoalsMeta["weekly_hours"]);
       if (studyGoalsMeta["daily_hours"]) setDailyHours(studyGoalsMeta["daily_hours"]);
@@ -166,7 +173,7 @@ function ProfilePage() {
         setPreferredDays(studyGoalsMeta["preferred_days"]);
     }
 
-    const learningPrefsMeta = meta["learning_preferences"];
+    const learningPrefsMeta = p?.learning_preferences || meta["learning_preferences"];
     if (learningPrefsMeta) {
       if (learningPrefsMeta["language"])
         setPreferredLanguage(learningPrefsMeta["language"]);
@@ -177,7 +184,7 @@ function ProfilePage() {
         setDifficultyPreference(learningPrefsMeta["difficulty"]);
     }
 
-    const notifMeta = meta["notification_preferences"];
+    const notifMeta = p?.notification_preferences || meta["notification_preferences"];
     if (notifMeta) {
       if (typeof notifMeta["study_reminders"] === "boolean")
         setStudyReminders(notifMeta["study_reminders"]);
@@ -189,77 +196,64 @@ function ProfilePage() {
         setPersonalizedTips(notifMeta["personalized_tips"]);
     }
 
-    // Load bookmarks count from localStorage
-    try {
-      const bMarks = JSON.parse(localStorage.getItem("bookmarks") || "[]");
-      setBookmarkedCount(Array.isArray(bMarks) ? bMarks.length : 0);
-    } catch {
-      setBookmarkedCount(0);
-    }
-
-    // Fetch profile from Supabase table if available
-    async function loadProfile() {
-      if (!user?.id) return;
-      try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .maybeSingle();
-
-        if (!error && data) {
-          if (data.display_name) setName(data.display_name);
-          if (data.phone) setPhone(data.phone);
-          if (data.location) setLocation(data.location);
-          if (data.about_me) setAboutMe(data.about_me);
-          if (data.avatar_url) setAvatarUrl(data.avatar_url);
-          if (data.target_exams && data.target_exams.length > 0)
-            setTargetExams(data.target_exams);
-
-          if (data.exam_details) {
-            const ed: any = data.exam_details;
-            if (ed.target_year) setTargetYear(ed.target_year);
-            if (ed.stage) setPrepStage(ed.stage);
-            if (ed.target_rank) setTargetRank(ed.target_rank);
-            if (Array.isArray(ed.focus_subjects))
-              setFocusSubjects(ed.focus_subjects);
-          }
-
-          if (data.study_goals) {
-            const sg: any = data.study_goals;
-            if (sg.weekly_hours) setWeeklyHours(sg.weekly_hours);
-            if (sg.daily_hours) setDailyHours(sg.daily_hours);
-            if (Array.isArray(sg.preferred_days))
-              setPreferredDays(sg.preferred_days);
-          }
-
-          if (data.learning_preferences) {
-            const lp: any = data.learning_preferences;
-            if (lp.language)
-              setPreferredLanguage(lp.language);
-            if (lp.theme) setAppTheme(lp.theme);
-            if (lp.practice_mode)
-              setPracticeMode(lp.practice_mode);
-            if (lp.difficulty)
-              setDifficultyPreference(lp.difficulty);
-          }
-
-          if (data.notification_preferences) {
-            const np: any = data.notification_preferences;
-            if (typeof np.study_reminders === "boolean")
-              setStudyReminders(np.study_reminders);
-            if (typeof np.test_updates === "boolean")
-              setTestUpdates(np.test_updates);
-            if (typeof np.new_material === "boolean")
-              setNewMaterial(np.new_material);
-            if (typeof np.personalized_tips === "boolean")
-              setPersonalizedTips(np.personalized_tips);
+    // Load bookmarks count via authoritative server function (scoped strictly to current user)
+    getBookmarks()
+      .then((res) => setBookmarkedCount(res.bookmarks?.length || 0))
+      .catch(() => {
+        if (user.id) {
+          try {
+            const b = JSON.parse(localStorage.getItem(`study_bookmarks_${user.id}`) || "[]");
+            setBookmarkedCount(Array.isArray(b) ? b.length : 0);
+          } catch {
+            setBookmarkedCount(0);
           }
         }
-      } catch (err) {
-        // Silently fallback to metadata
-      }
-    }
+      });
+
+    // Authoritative profile sync from server function
+    getUserProfile()
+      .then((authoritativeProfile) => {
+        if (!authoritativeProfile) return;
+        if (authoritativeProfile.display_name) setName(authoritativeProfile.display_name);
+        if (authoritativeProfile.phone) setPhone(authoritativeProfile.phone);
+        if (authoritativeProfile.location) setLocation(authoritativeProfile.location);
+        if (authoritativeProfile.about_me) setAboutMe(authoritativeProfile.about_me);
+        if (authoritativeProfile.avatar_url) setAvatarUrl(authoritativeProfile.avatar_url);
+        if (authoritativeProfile.target_exams && authoritativeProfile.target_exams.length > 0)
+          setTargetExams(authoritativeProfile.target_exams);
+
+        if (authoritativeProfile.exam_details) {
+          const ed: any = authoritativeProfile.exam_details;
+          if (ed.target_year) setTargetYear(ed.target_year);
+          if (ed.stage) setPrepStage(ed.stage);
+          if (ed.target_rank) setTargetRank(ed.target_rank);
+          if (Array.isArray(ed.focus_subjects)) setFocusSubjects(ed.focus_subjects);
+        }
+
+        if (authoritativeProfile.study_goals) {
+          const sg: any = authoritativeProfile.study_goals;
+          if (sg.weekly_hours) setWeeklyHours(sg.weekly_hours);
+          if (sg.daily_hours) setDailyHours(sg.daily_hours);
+          if (Array.isArray(sg.preferred_days)) setPreferredDays(sg.preferred_days);
+        }
+
+        if (authoritativeProfile.learning_preferences) {
+          const lp: any = authoritativeProfile.learning_preferences;
+          if (lp.language) setPreferredLanguage(lp.language);
+          if (lp.theme) setAppTheme(lp.theme);
+          if (lp.practice_mode) setPracticeMode(lp.practice_mode);
+          if (lp.difficulty) setDifficultyPreference(lp.difficulty);
+        }
+
+        if (authoritativeProfile.notification_preferences) {
+          const np: any = authoritativeProfile.notification_preferences;
+          if (typeof np.study_reminders === "boolean") setStudyReminders(np.study_reminders);
+          if (typeof np.test_updates === "boolean") setTestUpdates(np.test_updates);
+          if (typeof np.new_material === "boolean") setNewMaterial(np.new_material);
+          if (typeof np.personalized_tips === "boolean") setPersonalizedTips(np.personalized_tips);
+        }
+      })
+      .catch(() => {});
 
     // Load attempts history
     async function loadAttempts() {
@@ -282,32 +276,16 @@ function ProfilePage() {
       }
     }
 
-    loadProfile();
     loadAttempts();
-  }, [user]);
+  }, [user, profile]);
 
   // Handle avatar changes
   async function handleAvatarChange(newUrl: string) {
     setAvatarUrl(newUrl);
 
     if (!user) return;
-    const updatedUser = {
-      ...user,
-      user_metadata: {
-        ...(user.user_metadata || {}),
-        avatar_url: newUrl,
-      },
-    };
-
-    loginUser(updatedUser, isAdmin);
-
     try {
-      await supabase.from("profiles").upsert({
-        id: user.id,
-        avatar_url: newUrl,
-        updated_at: new Date().toISOString(),
-      });
-      // Synchronize with Supabase Auth metadata for seamless cross-device session reflection
+      await updateUserProfile({ data: { avatar_url: newUrl } });
       await supabase.auth.updateUser({
         data: { avatar_url: newUrl },
       }).catch(() => {});
@@ -321,22 +299,8 @@ function ProfilePage() {
     setAvatarUrl("");
 
     if (!user) return;
-    const updatedUser = {
-      ...user,
-      user_metadata: {
-        ...(user.user_metadata || {}),
-        avatar_url: "",
-      },
-    };
-
-    loginUser(updatedUser, isAdmin);
-
     try {
-      await supabase.from("profiles").upsert({
-        id: user.id,
-        avatar_url: null,
-        updated_at: new Date().toISOString(),
-      });
+      await updateUserProfile({ data: { avatar_url: null } });
       await supabase.auth.updateUser({
         data: { avatar_url: "" },
       }).catch(() => {});
@@ -353,10 +317,19 @@ function ProfilePage() {
 
     setSavingPersonal(true);
     try {
-      const updatedUser = {
-        ...user,
-        user_metadata: {
-          ...(user.user_metadata || {}),
+      const payload = {
+        display_name: name,
+        phone,
+        location,
+        about_me: aboutMe,
+        avatar_url: avatarUrl,
+      };
+
+      await updateUserProfile({ data: payload });
+
+      // Synchronize with Supabase Auth metadata for seamless cross-device session reflection
+      await supabase.auth.updateUser({
+        data: {
           full_name: name,
           display_name: name,
           phone,
@@ -364,41 +337,12 @@ function ProfilePage() {
           about_me: aboutMe,
           avatar_url: avatarUrl,
         },
-      };
+      }).catch(() => {});
 
-      loginUser(updatedUser, isAdmin);
-
-      try {
-        const { error: pErr } = await supabase.from("profiles").upsert({
-          id: user.id,
-          display_name: name,
-          email,
-          phone,
-          location,
-          about_me: aboutMe,
-          updated_at: new Date().toISOString(),
-        });
-        if (pErr && (pErr.code === "PGRST204" || pErr.code === "42703")) {
-          // Live schema fallback: guaranteed core columns present in live database
-          await supabase.from("profiles").upsert({
-            id: user.id,
-            display_name: name,
-            email,
-            phone,
-            updated_at: new Date().toISOString(),
-          });
-        }
-
-        // Sync with Supabase Auth metadata
-        await supabase.auth.updateUser({
-          data: { full_name: name, display_name: name, phone },
-        }).catch(() => {});
-        await refreshProfile();
-      } catch (e) {}
-
+      await refreshProfile();
       toast.success("Personal information saved successfully!");
-    } catch {
-      toast.error("Failed to save personal information.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save personal information.");
     } finally {
       setSavingPersonal(false);
     }
@@ -418,31 +362,22 @@ function ProfilePage() {
         focus_subjects: focusSubjects,
       };
 
-      const updatedUser = {
-        ...user,
-        user_metadata: {
-          ...(user.user_metadata || {}),
-          target_exams: targetExams,
-          primary_exam: targetExams[0] || "KCET",
-          exam_details: examDetailsObj,
-        },
+      const payload = {
+        target_exams: targetExams,
+        primary_exam: targetExams[0] || "KCET",
+        exam_details: examDetailsObj,
       };
 
-      loginUser(updatedUser, isAdmin);
+      await updateUserProfile({ data: payload });
 
-      try {
-        await supabase.from("profiles").upsert({
-          id: user.id,
-          target_exams: targetExams,
-          primary_exam: targetExams[0] || "KCET",
-          exam_details: examDetailsObj,
-          updated_at: new Date().toISOString(),
-        });
-      } catch (e) {}
+      await supabase.auth.updateUser({
+        data: payload,
+      }).catch(() => {});
 
+      await refreshProfile();
       toast.success("Exam preparation details saved!");
-    } catch {
-      toast.error("Failed to save exam details.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save exam details.");
     } finally {
       setSavingExams(false);
     }
@@ -475,18 +410,6 @@ function ProfilePage() {
         personalized_tips: personalizedTips,
       };
 
-      const updatedUser = {
-        ...user,
-        user_metadata: {
-          ...(user.user_metadata || {}),
-          study_goals: studyGoalsObj,
-          learning_preferences: learningPreferencesObj,
-          notification_preferences: notificationPreferencesObj,
-        },
-      };
-
-      loginUser(updatedUser, isAdmin);
-
       // Also apply theme immediately if changed
       if (appTheme === "Dark") {
         document.documentElement.classList.add("dark");
@@ -496,19 +419,22 @@ function ProfilePage() {
         localStorage.setItem("study-theme", "light");
       }
 
-      try {
-        await supabase.from("profiles").upsert({
-          id: user.id,
-          study_goals: studyGoalsObj,
-          learning_preferences: learningPreferencesObj,
-          notification_preferences: notificationPreferencesObj,
-          updated_at: new Date().toISOString(),
-        });
-      } catch (e) {}
+      const payload = {
+        study_goals: studyGoalsObj,
+        learning_preferences: learningPreferencesObj,
+        notification_preferences: notificationPreferencesObj,
+      };
 
+      await updateUserProfile({ data: payload });
+
+      await supabase.auth.updateUser({
+        data: payload,
+      }).catch(() => {});
+
+      await refreshProfile();
       toast.success("Study preferences & goals saved successfully!");
-    } catch {
-      toast.error("Failed to save study preferences.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save study preferences.");
     } finally {
       setSavingPrefs(false);
     }
@@ -1404,6 +1330,28 @@ function ProfilePage() {
                 <span className="flex items-center gap-2.5">
                   <BookOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
                   Revision Planner
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+
+              <Link
+                to="/bookmarks"
+                className="flex items-center justify-between py-3 text-xs font-semibold text-foreground hover:text-primary transition-colors group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Bookmark className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  Saved Question Bookmarks ({bookmarkedCount})
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+
+              <Link
+                to="/leaderboard"
+                className="flex items-center justify-between py-3 text-xs font-semibold text-foreground hover:text-primary transition-colors group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Trophy className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  Global Leaderboard & Standing
                 </span>
                 <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
               </Link>

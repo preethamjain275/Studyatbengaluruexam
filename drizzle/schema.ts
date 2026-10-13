@@ -115,3 +115,12 @@ export const auditLogs = pgTable("audit_logs", {
   payload: jsonb("payload").default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+
+// 8. Bookmarks
+export const bookmarks = pgTable("bookmarks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  questionId: text("question_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+

@@ -24,6 +24,7 @@ import { Route as RevisionRouteImport } from './routes/revision'
 import { Route as ScholarshipExamRouteImport } from './routes/scholarship-exam'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiTutorRouteImport } from './routes/api/tutor'
 import { Route as ExamsExamIdRouteImport } from './routes/exams.$examId'
 import { Route as StudentLoginRouteImport } from './routes/student/login'
@@ -106,6 +107,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTutorRoute = ApiTutorRouteImport.update({
   id: '/api/tutor',
   path: '/api/tutor',
@@ -161,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/scholarship-exam': typeof ScholarshipExamRoute
   '/terms': typeof TermsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/tutor': typeof ApiTutorRoute
   '/exams/$examId': typeof ExamsExamIdRoute
   '/student/login': typeof StudentLoginRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByTo {
   '/scholarship-exam': typeof ScholarshipExamRoute
   '/terms': typeof TermsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/tutor': typeof ApiTutorRoute
   '/exams/$examId': typeof ExamsExamIdRoute
   '/student/login': typeof StudentLoginRoute
@@ -209,6 +217,7 @@ export interface FileRoutesById {
   '/scholarship-exam': typeof ScholarshipExamRoute
   '/terms': typeof TermsRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/tutor': typeof ApiTutorRoute
   '/exams/$examId': typeof ExamsExamIdRoute
   '/student/login': typeof StudentLoginRoute
@@ -234,6 +243,7 @@ export interface FileRouteTypes {
     | '/scholarship-exam'
     | '/terms'
     | '/admin'
+    | '/api/health'
     | '/api/tutor'
     | '/exams/$examId'
     | '/student/login'
@@ -257,6 +267,7 @@ export interface FileRouteTypes {
     | '/scholarship-exam'
     | '/terms'
     | '/admin'
+    | '/api/health'
     | '/api/tutor'
     | '/exams/$examId'
     | '/student/login'
@@ -281,6 +292,7 @@ export interface FileRouteTypes {
     | '/scholarship-exam'
     | '/terms'
     | '/_authenticated/admin'
+    | '/api/health'
     | '/api/tutor'
     | '/exams/$examId'
     | '/student/login'
@@ -305,6 +317,7 @@ export interface RootRouteChildren {
   RevisionRoute: typeof RevisionRoute
   ScholarshipExamRoute: typeof ScholarshipExamRoute
   TermsRoute: typeof TermsRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiTutorRoute: typeof ApiTutorRoute
   ExamsExamIdRoute: typeof ExamsExamIdRoute
   StudentLoginRoute: typeof StudentLoginRoute
@@ -417,6 +430,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/tutor': {
       id: '/api/tutor'
       path: '/api/tutor'
@@ -503,6 +523,7 @@ const rootRouteChildren: RootRouteChildren = {
   RevisionRoute: RevisionRoute,
   ScholarshipExamRoute: ScholarshipExamRoute,
   TermsRoute: TermsRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiTutorRoute: ApiTutorRoute,
   ExamsExamIdRoute: ExamsExamIdRoute,
   StudentLoginRoute: StudentLoginRoute,

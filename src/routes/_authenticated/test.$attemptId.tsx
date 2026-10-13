@@ -3,13 +3,14 @@ import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, ChevronLeft, ChevronRight, Eraser, Flag, Maximize, Send, ShieldAlert } from "lucide-react";
-import { getAttempt, saveProgress, submitAttempt } from "@/lib/engine.functions";
+import { getAttempt, saveProgress, submitAttempt, getBookmarks, toggleBookmark as toggleBookmarkServerFn } from "@/lib/engine.functions";
 import { getPreset, LEVEL_LABEL, type Level } from "@/lib/engine/patterns";
 import { formatClock, isFinalWarning, paletteStatus, remainingMs, STATUS_LABEL, type QMeta, type QStatus } from "@/lib/engine/state";
 import { hasAnswer } from "@/lib/engine/scoring";
 import { getExam } from "@/lib/exams";
 import { btnGhost, btnPrimary } from "@/components/site/ui";
 import { TutorContext } from "@/components/site/Tutor";
+import { useAuth } from "@/hooks/use-auth";
 
 const attemptQuery = (id: string) => queryOptions({ queryKey: ["attempt", id], queryFn: () => getAttempt({ data: { id } }), staleTime: 0 });
 
@@ -33,16 +34,17 @@ type Ans = string | string[];
 function TestPage() {
   const { attemptId } = Route.useParams();
   const { data } = useSuspenseQuery(attemptQuery(attemptId));
+  const { user } = useAuth();
   const navigate = useNavigate();
   const save = useServerFn(saveProgress);
   const submit = useServerFn(submitAttempt);
+  const toggleBookmarkServer = useServerFn(toggleBookmarkServerFn);
   const { attempt, questions } = data;
   const preset = attempt.presetId ? getPreset(attempt.presetId) : undefined;
   const isMock = attempt.mode === "mock";
   const examName = getExam(attempt.examId)?.name ?? attempt.examId;
   const title = preset ? preset.name : `${examName} · ${attempt.track} · ${LEVEL_LABEL[attempt.level as Level]} practice`;
   const backKey = `attempt-backup:${attemptId}`;
-
   const [answers, setAnswers] = useState<Record<string, Ans>>(() => {
     const init: Record<string, Ans> = {};
     if (attempt.answers) {
@@ -59,32 +61,53 @@ function TestPage() {
   const [now, setNow] = useState(Date.now());
   const [confirm, setConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "offline">("saved");
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "unsaved" | "offline" | "restored">("saved");
   const [warning, setWarning] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
   const offset = useRef(data.serverNow - Date.now());
   const events = useRef<{ type: string; at: number }[]>([]);
   const dirty = useRef(false);
+  const inFlight = useRef(false);
   const submittedRef = useRef(false);
+  const latestAnswersRef = useRef(answers);
+  const latestMetaRef = useRef(meta);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => { latestAnswersRef.current = answers; }, [answers]);
+  useEffect(() => { latestMetaRef.current = meta; }, [meta]);
 
   // Restore local backup (survives refresh / connection loss) and bookmarks.
   useEffect(() => {
     try {
       const b = JSON.parse(localStorage.getItem(backKey) ?? "null");
-      if (b?.answers) {
+      if (b?.answers && Object.keys(b.answers).length > 0) {
         const cleanBAnswers: Record<string, Ans> = {};
         for (const [k, v] of Object.entries(b.answers)) {
           if (!k.startsWith("_") && v != null) {
             cleanBAnswers[k] = v as Ans;
           }
         }
-        setAnswers((a) => ({ ...a, ...cleanBAnswers }));
-        if (b.meta) setMeta((m) => ({ ...m, ...b.meta }));
-        dirty.current = true;
+        if (Object.keys(cleanBAnswers).length > 0) {
+          setAnswers((a) => ({ ...a, ...cleanBAnswers }));
+          if (b.meta) setMeta((m) => ({ ...m, ...b.meta }));
+          dirty.current = true;
+          setSaveState("restored");
+        }
       }
-      setBookmarks(JSON.parse(localStorage.getItem("bookmarks") ?? "[]"));
+      const bKey = user?.id ? `study_bookmarks_${user.id}` : null;
+      if (bKey) {
+        setBookmarks(JSON.parse(localStorage.getItem(bKey) ?? "[]"));
+      }
+      getBookmarks().then((res) => {
+        if (res.bookmarks && res.bookmarks.length > 0) {
+          setBookmarks(res.bookmarks);
+          if (bKey) {
+            try { localStorage.setItem(bKey, JSON.stringify(res.bookmarks)); } catch {}
+          }
+        }
+      }).catch(() => {});
     } catch { /* ignore corrupt backup */ }
-  }, [backKey]);
+  }, [backKey, user?.id]);
 
   useEffect(() => {
     if (attempt.status === "submitted") navigate({ to: "/results/$attemptId", params: { attemptId }, replace: true });
@@ -93,7 +116,10 @@ function TestPage() {
   const q = questions[idx];
   // Mark the current question visited.
   useEffect(() => {
-    if (q && !meta[q.id]?.visited) { setMeta((m) => ({ ...m, [q.id]: { ...m[q.id], visited: true } })); dirty.current = true; }
+    if (q && !meta[q.id]?.visited) {
+      setMeta((m) => ({ ...m, [q.id]: { ...m[q.id], visited: true } }));
+      dirty.current = true;
+    }
   }, [q, meta]);
 
   useEffect(() => {
@@ -101,43 +127,59 @@ function TestPage() {
       Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
     );
     localStorage.setItem(backKey, JSON.stringify({ answers: cleanToStore, meta }));
-    dirty.current = true;
   }, [answers, meta, backKey]);
 
   const flush = useCallback(async () => {
-    if (!dirty.current || submittedRef.current) return;
+    if (!dirty.current || inFlight.current || submittedRef.current) return;
+    inFlight.current = true;
     dirty.current = false;
     const ev = events.current.splice(0);
     setSaveState("saving");
     try {
-      const cleanAnswers = Object.fromEntries(
-        Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
+      const currentSnapshot = Object.fromEntries(
+        Object.entries(latestAnswersRef.current).filter(([k, v]) => !k.startsWith("_") && v != null)
       );
-      const r = await save({ data: { id: attemptId, answers: cleanAnswers, statuses: meta, events: ev } });
-      setSaveState("saved");
-      if (r.status === "submitted") { submittedRef.current = true; navigate({ to: "/results/$attemptId", params: { attemptId } }); }
+      const r = await save({ data: { id: attemptId, answers: currentSnapshot, statuses: latestMetaRef.current, events: ev } });
+      setSaveState((prev) => (dirty.current ? "unsaved" : "saved"));
+      if (r.status === "submitted") {
+        submittedRef.current = true;
+        navigate({ to: "/results/$attemptId", params: { attemptId } });
+      }
     } catch {
-      dirty.current = true; events.current.unshift(...ev); setSaveState("offline");
+      dirty.current = true;
+      events.current.unshift(...ev);
+      setSaveState("offline");
+    } finally {
+      inFlight.current = false;
     }
-  }, [answers, meta, attemptId, save, navigate]);
+  }, [attemptId, save, navigate]);
 
-  useEffect(() => { const t = setInterval(flush, 5000); return () => clearInterval(t); }, [flush]);
+  // Periodic autosave interval (every 5 seconds if dirty)
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (dirty.current && !inFlight.current) flush();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [flush]);
 
   const doSubmit = useCallback(async () => {
     if (submittedRef.current) return;
-    submittedRef.current = true; setSubmitting(true);
+    submittedRef.current = true;
+    setSubmitting(true);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     try {
       const cleanAnswers = Object.fromEntries(
-        Object.entries(answers).filter(([k, v]) => !k.startsWith("_") && v != null)
+        Object.entries(latestAnswersRef.current).filter(([k, v]) => !k.startsWith("_") && v != null)
       );
-      await save({ data: { id: attemptId, answers: cleanAnswers, statuses: meta, events: events.current.splice(0) } }).catch(() => null);
-      await submit({ data: { id: attemptId, answers: cleanAnswers, statuses: meta } });
+      await submit({ data: { id: attemptId, answers: cleanAnswers, statuses: latestMetaRef.current } });
       localStorage.removeItem(backKey);
       navigate({ to: "/results/$attemptId", params: { attemptId } });
-    } catch {
-      submittedRef.current = false; setSubmitting(false); setWarning("Submission failed - check your connection and try again. Your answers are kept on this device.");
+    } catch (e) {
+      submittedRef.current = false;
+      setSubmitting(false);
+      setWarning(`Submission failed: ${(e as Error)?.message || "Check your connection and try again. Your answers are kept safely on this device."}`);
     }
-  }, [answers, meta, attemptId, save, submit, navigate, backKey]);
+  }, [attemptId, submit, navigate, backKey]);
 
   // Authoritative countdown using server deadline.
   const left = remainingMs(attempt.deadline, now + offset.current);
@@ -197,16 +239,36 @@ function TestPage() {
     );
   }
 
-  const setAns = (v: Ans | null) => setAnswers((a) => { const n = { ...a }; if (v == null || (Array.isArray(v) && !v.length)) delete n[q.id]; else n[q.id] = v; return n; });
-  const toggleMark = () => setMeta((m) => ({ ...m, [q.id]: { ...m[q.id], visited: true, marked: !m[q.id]?.marked } }));
+  const setAns = (v: Ans | null) => {
+    setAnswers((a) => {
+      const n = { ...a };
+      if (v == null || (Array.isArray(v) && !v.length)) delete n[q.id];
+      else n[q.id] = v;
+      return n;
+    });
+    dirty.current = true;
+    setSaveState("unsaved");
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      flush();
+    }, 1500);
+  };
+  const toggleMark = () => {
+    setMeta((m) => ({ ...m, [q.id]: { ...m[q.id], visited: true, marked: !m[q.id]?.marked } }));
+    dirty.current = true;
+  };
   const toggleBookmark = () => {
     const n = bookmarks.includes(q.id) ? bookmarks.filter((b) => b !== q.id) : [...bookmarks, q.id];
-    setBookmarks(n); localStorage.setItem("bookmarks", JSON.stringify(n));
+    setBookmarks(n);
+    if (user?.id) {
+      try { localStorage.setItem(`study_bookmarks_${user.id}`, JSON.stringify(n)); } catch {}
+    }
+    toggleBookmarkServer({ data: { questionId: q.id } }).catch(() => {});
   };
   const warn = isFinalWarning(left);
 
   return (
-    <div className="-mt-8" onCopy={blockCopy} onCut={blockCopy} onContextMenu={blockCopy}>
+    <div className="space-y-4 pt-1" onCopy={blockCopy} onCut={blockCopy} onContextMenu={blockCopy}>
       {/* Full-Screen Gatekeeper Modal: Exam must be taken in full-screen mode */}
       {!isFullscreen && typeof document !== "undefined" && document.fullscreenEnabled && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-md p-4" role="dialog" aria-modal="true">
@@ -261,7 +323,19 @@ function TestPage() {
           )}
           <button onClick={() => setConfirm(true)} disabled={submitting} className={btnPrimary}><Send className="h-4 w-4" />Submit</button>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">{saveState === "saving" ? "Saving…" : saveState === "offline" ? "Connection issue - answers kept on this device, retrying" : "All answers saved"}</p>
+        <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1.5">
+          {saveState === "saving" ? (
+            <span className="text-primary font-medium">Saving responses…</span>
+          ) : saveState === "unsaved" ? (
+            <span className="text-amber-600 dark:text-amber-400 font-medium">Unsaved changes…</span>
+          ) : saveState === "offline" ? (
+            <span className="text-destructive font-medium">Connection issue — answers kept on this device, retrying…</span>
+          ) : saveState === "restored" ? (
+            <span className="text-emerald-600 font-medium">Restored answers from local backup ✓</span>
+          ) : (
+            <span className="text-muted-foreground">All answers saved ✓</span>
+          )}
+        </p>
       </div>
 
       {warning && (
@@ -312,7 +386,15 @@ function TestPage() {
             <button disabled={idx === 0 || !canBack} onClick={() => setIdx(idx - 1)} className={btnGhost}><ChevronLeft className="h-4 w-4" />Previous</button>
             <button onClick={toggleMark} className={btnGhost} aria-pressed={!!meta[q.id]?.marked}><Flag className="h-4 w-4" />{meta[q.id]?.marked ? "Unmark review" : "Mark for review"}</button>
             <button onClick={() => setAns(null)} className={btnGhost}><Eraser className="h-4 w-4" />Clear response</button>
-            {!isMock && <button onClick={toggleBookmark} className={btnGhost} aria-pressed={bookmarks.includes(q.id)}><Bookmark className="h-4 w-4" />{bookmarks.includes(q.id) ? "Saved" : "Save"}</button>}
+            <button
+              onClick={toggleBookmark}
+              className={`${btnGhost} ${bookmarks.includes(q.id) ? "text-primary font-bold" : ""}`}
+              aria-pressed={bookmarks.includes(q.id)}
+              title={bookmarks.includes(q.id) ? "Question saved to bookmarks" : "Save question to bookmarks"}
+            >
+              <Bookmark className={`h-4 w-4 ${bookmarks.includes(q.id) ? "fill-primary text-primary" : ""}`} />
+              {bookmarks.includes(q.id) ? "Saved" : "Save"}
+            </button>
             <button disabled={idx === questions.length - 1} onClick={() => setIdx(idx + 1)} className={`${btnPrimary} ml-auto`}>Save & next<ChevronRight className="h-4 w-4" /></button>
           </div>
         </section>

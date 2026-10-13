@@ -15,12 +15,38 @@ function trackOf(examId: string, track: string) {
   return t;
 }
 
+let cachedMasteryThreshold = 80;
+
+export async function fetchDbMasteryThreshold(): Promise<number> {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("app_settings")
+      .select("value")
+      .eq("key", "mastery_threshold")
+      .maybeSingle();
+
+    if (!error && data?.value) {
+      const val =
+        typeof data.value === "object" && data.value !== null
+          ? (data.value as any).threshold
+          : Number(data.value);
+      if (typeof val === "number" && !isNaN(val) && val >= 50 && val <= 100) {
+        cachedMasteryThreshold = val;
+        return val;
+      }
+    }
+  } catch {}
+  return cachedMasteryThreshold;
+}
+
 export const getMastery = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ examId: z.string() }).parse(d))
   .handler(async ({ data, context }: { data: { examId: string }; context: any }) => {
     const { supabase, userId } = context;
     const tracks = TRACKS[data.examId] ?? [];
+    const dbThreshold = await fetchDbMasteryThreshold();
 
     let atts: any[] = [];
     try {
@@ -65,7 +91,7 @@ export const getMastery = createServerFn({ method: "GET" })
       const last = mine.find((a: any) => a.status === "submitted");
       out.push({
         track: t.name,
-        state: masteryState(pa),
+        state: masteryState(pa, dbThreshold),
         pool,
         open: mine.filter((a: any) => a.status === "in_progress").map((a: any) => ({ id: a.id, level: a.level })),
         lastResult: last
@@ -130,8 +156,11 @@ export const startPractice = createServerFn({ method: "POST" })
       status: a.id === open?.id ? "submitted" : a.status,
     }));
 
-    if (!masteryState(pa).unlocked.includes(data.level)) {
-      throw new Error("Score at least 90% in the previous level to unlock this one.");
+    const dbThreshold = await fetchDbMasteryThreshold();
+    const mState = masteryState(pa, dbThreshold);
+    const threshold = mState.threshold;
+    if (!mState.unlocked.includes(data.level)) {
+      throw new Error(`Score at least ${threshold}% in the previous level to unlock this one.`);
     }
 
     // Pull from 938-item question bank for the track subjects and difficulty level
@@ -330,7 +359,7 @@ export const getAttempt = createServerFn({ method: "GET" })
       }
     }
 
-    if (att.status === "in_progress" && isExpired(att.deadline, Date.now())) {
+    if (att.status === "in_progress" && !canSave(att.deadline, Date.now())) {
       const { finalizeAttempt } = await import("@/lib/engine.server");
       att = await finalizeAttempt(att.id, userId);
     }
@@ -357,11 +386,12 @@ export const getAttempt = createServerFn({ method: "GET" })
       }
     }
 
-    // Resolve question details directly from in-code question bank
+    // Resolve question details directly from in-code question bank and Supabase DB
     let qs: any[] = questionIds.map((id) => QUESTIONS_BY_ID.get(id)).filter(Boolean);
-    if (qs.length === 0) {
-      const { data: dbQs } = await supabaseAdmin.from("questions").select(QUESTION_COLS).in("id", questionIds);
-      qs = (dbQs ?? []) as any[];
+    if (qs.length < questionIds.length && questionIds.length > 0) {
+      const missingIds = questionIds.filter((id) => !qs.some((q) => q.id === id));
+      const { data: dbQs } = await supabaseAdmin.from("questions").select(QUESTION_COLS).in("id", missingIds);
+      if (dbQs) qs = [...qs, ...dbQs];
     }
     const byId = new Map<string, any>(qs.map((q: any) => [q.id, q]));
 
@@ -498,11 +528,30 @@ export const saveProgress = createServerFn({ method: "POST" })
       statuses: validStatuses as never,
     };
 
-    await supabaseAdmin
+    let { error } = await supabaseAdmin
       .from("attempts")
       .update(updateObj)
       .eq("id", data.id)
       .eq("status", "in_progress");
+
+    if (error && (error.code === "PGRST204" || error.code === "42703" || error.message?.includes("column"))) {
+      // Live schema fallback: attempts table does not have 'statuses' column
+      const liveUpdate = {
+        answers: mergedAnswers as never,
+        events: events as never,
+      };
+      const res = await supabaseAdmin
+        .from("attempts")
+        .update(liveUpdate)
+        .eq("id", data.id)
+        .eq("status", "in_progress");
+      error = res.error;
+    }
+
+    if (error) {
+      console.error("Failed to save attempt progress:", error);
+      throw new Error(`Failed to save progress: ${error.message}`);
+    }
 
     return { saved: true, status: "in_progress" as const };
   });
@@ -566,11 +615,12 @@ export const getResult = createServerFn({ method: "GET" })
     const preset = att.mode === "mock" ? getPreset(presetId) : undefined;
     const showSolutions = preset ? preset.showSolutions : true;
 
-    // Resolve question details and solutions from in-memory question bank
+    // Resolve question details and solutions from in-memory question bank and Supabase DB
     let qs: any[] = questionIds.map((id) => QUESTIONS_BY_ID.get(id)).filter(Boolean);
-    if (qs.length === 0 && questionIds.length > 0) {
-      const { data: dbQs } = await supabaseAdmin.from("questions").select(`${QUESTION_COLS}, correct, explanation`).in("id", questionIds);
-      qs = (dbQs ?? []) as any[];
+    if (qs.length < questionIds.length && questionIds.length > 0) {
+      const missingIds = questionIds.filter((id) => !qs.some((q) => q.id === id));
+      const { data: dbQs } = await supabaseAdmin.from("questions").select(`${QUESTION_COLS}, correct, explanation`).in("id", missingIds);
+      if (dbQs) qs = [...qs, ...dbQs];
     }
     const byId = new Map<string, any>(qs.map((q: any) => [q.id, q]));
 
@@ -606,7 +656,13 @@ export const getResult = createServerFn({ method: "GET" })
       const markingFor = (t: import("@/lib/engine/patterns").QType) =>
         preset ? preset.marking[t] ?? preset.marking.single ?? PRACTICE_MARKING : PRACTICE_MARKING;
       scoredResult = computeResult(
-        questions.map((q: any) => ({ id: q.id, qtype: q.qtype, correct: q.correct, subject: q.subject, chapter: q.chapter })),
+        questions.map((q: any) => ({
+          id: q.id,
+          qtype: q.qtype,
+          correct: byId.get(q.id)?.correct,
+          subject: q.subject,
+          chapter: q.chapter,
+        })),
         cleanStudentAnswers,
         markingFor
       );
@@ -663,3 +719,430 @@ export const listAttempts = createServerFn({ method: "GET" })
       created_at: a.created_at,
     }));
   });
+
+/* ==========================================================================
+   PHASE 4: MASTER SETTINGS, BOOKMARKS, ANALYTICS & LEADERBOARD
+   ========================================================================== */
+
+export const getMasterySettings = createServerFn({ method: "GET" })
+  .handler(async () => {
+    const threshold = await fetchDbMasteryThreshold();
+    return { threshold };
+  });
+
+export const updateMasterySettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ threshold: z.number().int().min(50).max(100) }).parse(d))
+  .handler(async ({ data, context }: { data: { threshold: number }; context: any }) => {
+    const { assertAdminRole } = await import("@/lib/admin.functions");
+    await assertAdminRole(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    try {
+      await supabaseAdmin.from("app_settings").upsert({
+        key: "mastery_threshold",
+        value: { threshold: data.threshold, updated_by: context.userId },
+        updated_at: new Date().toISOString(),
+      });
+    } catch {}
+
+    cachedMasteryThreshold = data.threshold;
+    return { ok: true, threshold: data.threshold };
+  });
+
+export const getBookmarks = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }: { context: any }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+
+    // 1. Authoritative check on public.bookmarks table
+    try {
+      const { data, error } = await supabaseAdmin
+        .from("bookmarks")
+        .select("question_id, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        // Table exists and query succeeded
+        if (data.length > 0) {
+          return { bookmarks: data.map((b: any) => b.question_id) };
+        }
+
+        // Check if legacy user_metadata has bookmarks that should be migrated into the table
+        try {
+          const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+          const legacy = userRes?.user?.user_metadata?.["bookmarks"];
+          if (Array.isArray(legacy) && legacy.length > 0) {
+            // Migrate legacy bookmarks into authoritative table
+            const toInsert = legacy.map((qid: string) => ({ user_id: userId, question_id: qid }));
+            await supabaseAdmin.from("bookmarks").upsert(toInsert, { onConflict: "user_id,question_id" });
+            return { bookmarks: legacy };
+          }
+        } catch {}
+
+        return { bookmarks: [] };
+      }
+
+      // If table is missing (migration 0004 not yet executed on remote DB), log explicitly
+      if (error && (error.code === "PGRST205" || error.message?.includes("schema cache"))) {
+        console.warn("[Database Notice] public.bookmarks table not found (PGRST205 - migration 0004 pending). Using temporary user_metadata fallback.");
+      }
+    } catch {}
+
+    // 2. Resilient fallback: read from user_metadata ONLY when database table is unavailable
+    try {
+      const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const metaBookmarks = userRes?.user?.user_metadata?.["bookmarks"];
+      if (Array.isArray(metaBookmarks)) {
+        return { bookmarks: metaBookmarks };
+      }
+    } catch {}
+
+    return { bookmarks: [] };
+  });
+
+export const toggleBookmark = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ questionId: z.string() }).parse(d))
+  .handler(async ({ data, context }: { data: { questionId: string }; context: any }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+    const qId = data.questionId;
+    let isBookmarked = false;
+    let tableWorked = false;
+
+    // 1. Authoritative mutation on public.bookmarks table
+    try {
+      const { data: existing, error: checkErr } = await supabaseAdmin
+        .from("bookmarks")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("question_id", qId)
+        .maybeSingle();
+
+      if (!checkErr) {
+        if (existing) {
+          await supabaseAdmin.from("bookmarks").delete().eq("id", existing.id);
+          isBookmarked = false;
+        } else {
+          await supabaseAdmin.from("bookmarks").upsert(
+            { user_id: userId, question_id: qId },
+            { onConflict: "user_id,question_id" }
+          );
+          isBookmarked = true;
+        }
+        tableWorked = true;
+      }
+    } catch {}
+
+    // 2. Fallback or transition mirror to user_metadata
+    try {
+      const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const currentList: string[] = (userRes?.user?.user_metadata?.["bookmarks"] as string[]) || [];
+      let updatedList: string[];
+      if (tableWorked) {
+        // If table worked, keep metadata in sync as transition mirror
+        if (isBookmarked) {
+          updatedList = currentList.includes(qId) ? currentList : [...currentList, qId];
+        } else {
+          updatedList = currentList.filter((id) => id !== qId);
+        }
+      } else {
+        // Table missing (PGRST205): user_metadata acts as temporary storage
+        console.warn("[Database Notice] public.bookmarks missing during toggle. Saving to user_metadata fallback.");
+        if (currentList.includes(qId)) {
+          updatedList = currentList.filter((id) => id !== qId);
+          isBookmarked = false;
+        } else {
+          updatedList = [...currentList, qId];
+          isBookmarked = true;
+        }
+      }
+
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: { ...(userRes?.user?.user_metadata || {}), bookmarks: updatedList },
+      });
+    } catch {}
+
+    return { bookmarked: isBookmarked, questionId: qId };
+  });
+
+export const removeBookmark = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ questionId: z.string() }).parse(d))
+  .handler(async ({ data, context }: { data: { questionId: string }; context: any }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+    const qId = data.questionId;
+
+    try {
+      await supabaseAdmin.from("bookmarks").delete().eq("user_id", userId).eq("question_id", qId);
+    } catch {}
+
+    try {
+      const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const currentList: string[] = (userRes?.user?.user_metadata?.["bookmarks"] as string[]) || [];
+      const updatedList = currentList.filter((id) => id !== qId);
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: { ...(userRes?.user?.user_metadata || {}), bookmarks: updatedList },
+      });
+    } catch {}
+
+    return { ok: true, questionId: qId };
+  });
+
+export const getStudentAnalytics = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      examId: z.string().default("all"),
+      timeframe: z.enum(["all", "30d", "7d"]).default("all").optional(),
+    }).parse(d ?? {})
+  )
+  .handler(async ({ data, context }: any) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+
+    let query = supabaseAdmin
+      .from("attempts")
+      .select("id, exam_id, mode, score, percentage, correct_count, incorrect_count, unanswered_count, total_questions, answers, created_at, status")
+      .eq("user_id", userId)
+      .eq("status", "submitted")
+      .order("created_at", { ascending: false });
+
+    if (data?.examId && data.examId !== "all") {
+      query = query.eq("exam_id", data.examId);
+    }
+    const { data: attempts } = await query;
+
+    let filteredAttempts = attempts || [];
+    if (data?.timeframe === "7d") {
+      const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      filteredAttempts = filteredAttempts.filter((a: any) => a.created_at && a.created_at >= cutoff);
+    } else if (data?.timeframe === "30d") {
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      filteredAttempts = filteredAttempts.filter((a: any) => a.created_at && a.created_at >= cutoff);
+    }
+
+    const { data: openAttempts } = await supabaseAdmin
+      .from("attempts")
+      .select("id, exam_id, mode, track, level, created_at, deadline, status, answers")
+      .eq("user_id", userId)
+      .eq("status", "in_progress")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const { computeStudentAnalytics } = await import("@/lib/engine/analytics");
+    const analyticsResult = computeStudentAnalytics(filteredAttempts);
+
+    const firstOpen = openAttempts && openAttempts.length > 0 ? openAttempts[0] : null;
+    const activeMeta = (firstOpen?.answers && typeof firstOpen.answers === "object" && !Array.isArray(firstOpen.answers))
+      ? (firstOpen.answers as Record<string, any>)["_meta"]
+      : undefined;
+
+    const activeSession = firstOpen ? {
+      id: firstOpen.id,
+      examId: firstOpen.exam_id,
+      mode: firstOpen.mode,
+      track: firstOpen.track || activeMeta?.track || "",
+      level: firstOpen.level || activeMeta?.level || "easy",
+    } : null;
+
+    return {
+      ...analyticsResult,
+      activeSession,
+    };
+  });
+
+export const getLeaderboard = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        examId: z.string().default("all"),
+        limit: z.number().int().min(1).max(100).default(50),
+        userId: z.string().optional(),
+      })
+      .parse(d ?? {})
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const examFilter = data.examId || "all";
+    const limit = data.limit || 50;
+    const callingUserId = (context as any)?.userId || data?.userId;
+
+    let query = supabaseAdmin
+      .from("attempts")
+      .select("id, user_id, exam_id, score, percentage, correct_count, incorrect_count, total_questions, created_at, status")
+      .eq("status", "submitted")
+      .order("percentage", { ascending: false });
+
+    if (examFilter !== "all") {
+      query = query.eq("exam_id", examFilter);
+    }
+
+    const { data: attempts } = await query;
+    const { rankLeaderboard } = await import("@/lib/engine/analytics");
+    if (!attempts || attempts.length === 0) {
+      return { entries: [], currentUserRank: null, totalParticipants: 0 };
+    }
+
+    const uniqueUserIds = Array.from(new Set(attempts.map((a: any) => a.user_id as string)));
+    if (callingUserId && !uniqueUserIds.includes(callingUserId)) {
+      uniqueUserIds.push(callingUserId);
+    }
+
+    let profiles: any[] = [];
+    if (uniqueUserIds.length > 0) {
+      const { data: profileRows } = await supabaseAdmin
+        .from("profiles")
+        .select("id, display_name, avatar_url")
+        .in("id", uniqueUserIds.slice(0, 100));
+      profiles = profileRows || [];
+    }
+
+    return rankLeaderboard(attempts, profiles, callingUserId, limit);
+  });
+
+/* ==========================================================================
+   USER PROFILE PERSISTENCE & CROSS-DEVICE SYNCHRONIZATION
+   ========================================================================== */
+
+export const getUserProfile = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }: { context: any }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+
+    let dbProfile: any = null;
+    try {
+      const { data } = await supabaseAdmin.from("profiles").select("*").eq("id", userId).maybeSingle();
+      dbProfile = data;
+    } catch {}
+
+    let meta: Record<string, any> = {};
+    let email: string | null = null;
+    try {
+      const { data: uRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+      meta = uRes?.user?.user_metadata || {};
+      email = uRes?.user?.email || null;
+    } catch {}
+
+    return {
+      id: userId,
+      display_name: dbProfile?.display_name || meta["display_name"] || meta["full_name"] || email?.split("@")[0] || "Student",
+      email: dbProfile?.email || email,
+      phone: dbProfile?.phone || meta["phone"] || null,
+      avatar_url: dbProfile?.avatar_url || meta["avatar_url"] || null,
+      standard: dbProfile?.standard || meta["standard"] || "12th Standard",
+      stream: dbProfile?.stream || meta["stream"] || "PCMB",
+      location: dbProfile?.location || meta["location"] || "Bengaluru, Karnataka",
+      about_me: dbProfile?.about_me || meta["about_me"] || "",
+      target_exams: dbProfile?.target_exams || meta["target_exams"] || ["KCET", "JEE Main"],
+      primary_exam: dbProfile?.primary_exam || meta["primary_exam"] || "KCET",
+      exam_details: dbProfile?.exam_details || meta["exam_details"] || {},
+      study_goals: dbProfile?.study_goals || meta["study_goals"] || {},
+      learning_preferences: dbProfile?.learning_preferences || meta["learning_preferences"] || {},
+      notification_preferences: dbProfile?.notification_preferences || meta["notification_preferences"] || {},
+    };
+  });
+
+const profileUpdateSchema = z.object({
+  display_name: z.string().optional(),
+  phone: z.string().optional().nullable(),
+  location: z.string().optional().nullable(),
+  about_me: z.string().optional().nullable(),
+  avatar_url: z.string().optional().nullable(),
+  standard: z.string().optional().nullable(),
+  stream: z.string().optional().nullable(),
+  target_exams: z.array(z.string()).optional(),
+  primary_exam: z.string().optional().nullable(),
+  exam_details: z.record(z.any()).optional(),
+  study_goals: z.record(z.any()).optional(),
+  learning_preferences: z.record(z.any()).optional(),
+  notification_preferences: z.record(z.any()).optional(),
+});
+
+export type ProfileUpdateData = z.infer<typeof profileUpdateSchema>;
+
+export const updateUserProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => profileUpdateSchema.parse(d ?? {}))
+  .handler(async ({ data, context }: { data: ProfileUpdateData; context: any }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+
+    // 1. Authoritative update to Supabase Auth user_metadata
+    let updatedMeta: Record<string, any> = {};
+    try {
+      const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const existingMeta = userRes?.user?.user_metadata || {};
+      updatedMeta = {
+        ...existingMeta,
+        ...(data.display_name !== undefined ? { full_name: data.display_name, display_name: data.display_name } : {}),
+        ...(data.phone !== undefined ? { phone: data.phone } : {}),
+        ...(data.location !== undefined ? { location: data.location } : {}),
+        ...(data.about_me !== undefined ? { about_me: data.about_me } : {}),
+        ...(data.avatar_url !== undefined ? { avatar_url: data.avatar_url } : {}),
+        ...(data.standard !== undefined ? { standard: data.standard } : {}),
+        ...(data.stream !== undefined ? { stream: data.stream } : {}),
+        ...(data.target_exams !== undefined ? { target_exams: data.target_exams } : {}),
+        ...(data.primary_exam !== undefined ? { primary_exam: data.primary_exam } : {}),
+        ...(data.exam_details !== undefined ? { exam_details: data.exam_details } : {}),
+        ...(data.study_goals !== undefined ? { study_goals: data.study_goals } : {}),
+        ...(data.learning_preferences !== undefined ? { learning_preferences: data.learning_preferences } : {}),
+        ...(data.notification_preferences !== undefined ? { notification_preferences: data.notification_preferences } : {}),
+      };
+
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: updatedMeta,
+      });
+    } catch (authErr) {
+      console.warn("Could not update auth user_metadata:", authErr);
+    }
+
+    // 2. Authoritative update to public.profiles Postgres table
+    try {
+      const fullProfilePayload: Record<string, any> = {
+        id: userId,
+        updated_at: new Date().toISOString(),
+      };
+      if (data.display_name !== undefined) fullProfilePayload["display_name"] = data.display_name;
+      if (data.phone !== undefined) fullProfilePayload["phone"] = data.phone;
+      if (data.location !== undefined) fullProfilePayload["location"] = data.location;
+      if (data.about_me !== undefined) fullProfilePayload["about_me"] = data.about_me;
+      if (data.avatar_url !== undefined) fullProfilePayload["avatar_url"] = data.avatar_url;
+      if (data.standard !== undefined) fullProfilePayload["standard"] = data.standard;
+      if (data.stream !== undefined) fullProfilePayload["stream"] = data.stream;
+      if (data.target_exams !== undefined) fullProfilePayload["target_exams"] = data.target_exams;
+      if (data.primary_exam !== undefined) fullProfilePayload["primary_exam"] = data.primary_exam;
+      if (data.exam_details !== undefined) fullProfilePayload["exam_details"] = data.exam_details;
+      if (data.study_goals !== undefined) fullProfilePayload["study_goals"] = data.study_goals;
+      if (data.learning_preferences !== undefined) fullProfilePayload["learning_preferences"] = data.learning_preferences;
+      if (data.notification_preferences !== undefined) fullProfilePayload["notification_preferences"] = data.notification_preferences;
+
+      const { error: pErr } = await supabaseAdmin.from("profiles").upsert(fullProfilePayload as any);
+
+      if (pErr && (pErr.code === "PGRST204" || pErr.code === "42703")) {
+        // Fallback for live schema missing extended columns
+        const corePayload: Record<string, any> = {
+          id: userId,
+          updated_at: new Date().toISOString(),
+        };
+        if (data.display_name !== undefined) corePayload["display_name"] = data.display_name;
+        if (data.phone !== undefined) corePayload["phone"] = data.phone;
+        if (data.avatar_url !== undefined) corePayload["avatar_url"] = data.avatar_url;
+        if (data.standard !== undefined) corePayload["standard"] = data.standard;
+        if (data.stream !== undefined) corePayload["stream"] = data.stream;
+
+        await supabaseAdmin.from("profiles").upsert(corePayload as any);
+      }
+    } catch (dbErr) {
+      console.warn("Could not upsert profiles table:", dbErr);
+    }
+
+    return { ok: true, metadata: updatedMeta };
+  });
+
+

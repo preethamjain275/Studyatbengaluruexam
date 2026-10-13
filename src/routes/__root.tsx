@@ -5,6 +5,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
   type ErrorComponentProps,
@@ -92,6 +93,21 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isAuthRoute = pathname === "/auth" || pathname.startsWith("/auth/") || pathname === "/student/login" || pathname === "/admin-login";
+
+  if (isAuthRoute) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <main className="min-h-screen flex items-center justify-center p-3 sm:p-6 lg:p-8 bg-gradient-to-br from-slate-100 via-background to-slate-200 dark:from-slate-950 dark:via-background dark:to-slate-900">
+            <Outlet />
+          </main>
+        </AuthProvider>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>

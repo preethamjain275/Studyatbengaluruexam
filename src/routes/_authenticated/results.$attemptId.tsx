@@ -1,13 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
-import { Award, CheckCircle2, MinusCircle, RotateCcw, XCircle } from "lucide-react";
-import { getResult, startPractice, submitAttempt } from "@/lib/engine.functions";
+import { useState, useEffect } from "react";
+import { Award, Bookmark, CheckCircle2, MinusCircle, RotateCcw, XCircle } from "lucide-react";
+import { getResult, startPractice, submitAttempt, toggleBookmark, getBookmarks } from "@/lib/engine.functions";
 import { getPreset, LEVEL_LABEL, LEVELS, type Level } from "@/lib/engine/patterns";
 import { MASTERY_THRESHOLD, formatClock } from "@/lib/engine/state";
 import { getExam } from "@/lib/exams";
 import { btnGhost, btnPrimary, Card } from "@/components/site/ui";
+import { useAuth } from "@/hooks/use-auth";
 
 import { computeResult } from "@/lib/engine/scoring";
 import { PRACTICE_MARKING } from "@/lib/engine/patterns";
@@ -41,8 +42,37 @@ function ResultPage() {
   const { data } = useSuspenseQuery(resultQuery(attemptId));
   const navigate = useNavigate();
   const start = useServerFn(startPractice);
+  const { user } = useAuth();
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [bookmarks, setBookmarks] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const localKey = `study_bookmarks_${user.id}`;
+    try {
+      const raw = localStorage.getItem(localKey);
+      if (raw) setBookmarks(JSON.parse(raw));
+    } catch {}
+    getBookmarks().then((res) => {
+      if (res?.bookmarks) {
+        setBookmarks(res.bookmarks);
+        try { localStorage.setItem(localKey, JSON.stringify(res.bookmarks)); } catch {}
+      }
+    }).catch(() => {});
+  }, [user?.id]);
+
+  const handleToggleBookmark = async (e: React.MouseEvent, qId: string) => {
+    e.stopPropagation();
+    const next = bookmarks.includes(qId) ? bookmarks.filter((b) => b !== qId) : [...bookmarks, qId];
+    setBookmarks(next);
+    if (user?.id) {
+      try { localStorage.setItem(`study_bookmarks_${user.id}`, JSON.stringify(next)); } catch {}
+    }
+    try {
+      await toggleBookmark({ data: { questionId: qId } });
+    } catch {}
+  };
 
   const attempt = data.attempt;
   const questions = data.questions || [];
@@ -79,8 +109,12 @@ function ResultPage() {
     catch (e) { setErr((e as Error).message); }
   }
 
+  const finalScore = attempt.score ?? result.score ?? 0;
+  const finalMaxScore = attempt.maxScore ?? result.maxScore ?? questions.length;
+  const finalPercent = attempt.percent ?? result.percent ?? 0;
+
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 pt-2">
       {/* Student Scorecard & Status Banner */}
       <div className="surface p-6 shadow-sm border rounded-2xl">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -95,8 +129,8 @@ function ResultPage() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-6">
-          <div><p className="text-4xl font-bold">{attempt.score} <span className="text-lg text-muted-foreground">/ {attempt.maxScore}</span></p><p className="text-sm text-muted-foreground">Total Score</p></div>
-          <div><p className="text-4xl font-bold">{attempt.percent}%</p><p className="text-sm text-muted-foreground">Percentage</p></div>
+          <div><p className="text-4xl font-bold">{finalScore} <span className="text-lg text-muted-foreground">/ {finalMaxScore}</span></p><p className="text-sm text-muted-foreground">Total Score</p></div>
+          <div><p className="text-4xl font-bold">{finalPercent}%</p><p className="text-sm text-muted-foreground">Percentage</p></div>
           <div className="text-sm">
             <p>Correct: <b className="text-emerald-600">{result.correct}</b> · Incorrect: <b className="text-destructive">{result.incorrect}</b>{result.partial ? <> · Partial: <b>{result.partial}</b></> : null} · Unanswered: <b className="text-muted-foreground">{result.unanswered}</b></p>
             <p className="text-muted-foreground">Time spent: {formatClock(spent)}</p>
@@ -196,35 +230,50 @@ function ResultPage() {
             {questions.map((q, i) => {
               const o = outcomes[q.id]?.outcome ?? "unanswered";
               return (
-                <li key={q.id} className="rounded-xl border p-4 shadow-sm bg-card scroll-mt-24 transition-colors">
-                  <button className="flex w-full items-start gap-3 text-left" onClick={() => setOpen(open === q.id ? null : q.id)} aria-expanded={open === q.id}>
-                    {o === "correct" ? (
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                    ) : o === "unanswered" ? (
-                      <MinusCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                    )}
-                    <div className="flex-1">
-                      <span className="text-sm font-semibold">Q{i + 1}. {q.body}</span>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <span className="bg-muted px-2 py-0.5 rounded">{q.subject}</span>
-                        <span className="bg-muted px-2 py-0.5 rounded">{q.chapter}</span>
-                        <span className="bg-muted px-2 py-0.5 rounded capitalize">{q.difficulty}</span>
+                <li key={q.id} className="rounded-xl border p-4 shadow-sm bg-card scroll-mt-28 transition-colors">
+                  <div className="flex w-full items-start gap-3">
+                    <button className="flex flex-1 items-start gap-3 text-left" onClick={() => setOpen(open === q.id ? null : q.id)} aria-expanded={open === q.id}>
+                      {o === "correct" ? (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      ) : o === "unanswered" ? (
+                        <MinusCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                      )}
+                      <div className="flex-1">
+                        <span className="text-sm font-semibold">Q{i + 1}. {q.body}</span>
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span className="bg-muted px-2 py-0.5 rounded">{q.subject}</span>
+                          <span className="bg-muted px-2 py-0.5 rounded">{q.chapter}</span>
+                          <span className="bg-muted px-2 py-0.5 rounded capitalize">{q.difficulty}</span>
+                        </div>
                       </div>
-                    </div>
-                    <span className={`text-xs font-semibold uppercase px-2.5 py-0.5 rounded-full border ${
-                      o === "correct"
-                        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-                        : o === "unanswered"
-                        ? "bg-muted text-muted-foreground border-border"
-                        : o === "partial"
-                        ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                        : "bg-destructive/10 text-destructive border-destructive/30"
-                    }`}>
-                      {o}
-                    </span>
-                  </button>
+                      <span className={`text-xs font-semibold uppercase px-2.5 py-0.5 rounded-full border ${
+                        o === "correct"
+                          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+                          : o === "unanswered"
+                          ? "bg-muted text-muted-foreground border-border"
+                          : o === "partial"
+                          ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                          : "bg-destructive/10 text-destructive border-destructive/30"
+                      }`}>
+                        {o}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleBookmark(e, q.id)}
+                      title={bookmarks.includes(q.id) ? "Remove bookmark" : "Save question to bookmarks"}
+                      aria-label={bookmarks.includes(q.id) ? "Remove bookmark" : "Save question to bookmarks"}
+                      className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
+                        bookmarks.includes(q.id)
+                          ? "text-primary bg-primary/10 border-primary/30 hover:bg-primary/20"
+                          : "text-muted-foreground border-transparent hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Bookmark className={`h-4 w-4 ${bookmarks.includes(q.id) ? "fill-current" : ""}`} />
+                    </button>
+                  </div>
                   {open === q.id && (
                     <div className="mt-4 space-y-3 border-t pt-4 text-sm animate-in fade-in">
                       {q.options && q.options.length > 0 && (
