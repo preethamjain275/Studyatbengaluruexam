@@ -61,10 +61,12 @@ function MasteryPage() {
     catch (e) { setErr((e as Error).message); setBusy(false); }
   }
 
+  const activeThreshold = (data as any[])?.[0]?.state?.threshold ?? MASTERY_THRESHOLD;
+
   return (
     <div>
       <PageHeader eyebrow={`${exam.short} · Mastery practice`} title={`${exam.name} mastery path`}>
-        Start at Easy. Score at least {MASTERY_THRESHOLD}% on a set of {PRACTICE_SET_SIZE}+ questions to unlock the next level. Pick a single subject or a mixed paper (PCB / PCM), choose how many questions, and keep retrying - every retake reshuffles questions and options. Full mock tests are never locked by this path.
+        Start at Easy. Score at least {activeThreshold}% on a set of {PRACTICE_SET_SIZE}+ questions to unlock the next level. Pick a single subject or a mixed paper (PCB / PCM), choose how many questions, and keep retrying - every retake reshuffles questions and options. Full mock tests are never locked by this path.
       </PageHeader>
       <div className="grid gap-4 md:grid-cols-2">
         {(data as any[]).map((t: any) => (
@@ -109,7 +111,7 @@ function MasteryPage() {
             <h3 id="ins" className="text-lg font-bold">{pending.track} · {LEVEL_LABEL[pending.level]} - instructions</h3>
             <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm">
               <li>{n} questions · {Math.round((n * PRACTICE_SECONDS_PER_Q[pending.level]) / 60)} minutes. The timer starts when you press Start. Questions and options are shuffled every time.</li>
-              <li>Practice scoring: 1 mark per correct answer, no negative marks. You need {MASTERY_THRESHOLD}% to unlock the next level.</li>
+              <li>Practice scoring: 1 mark per correct answer, no negative marks. You need {activeThreshold}% to unlock the next level.</li>
               <li>Move freely between questions, mark for review, clear responses. Answers save automatically.</li>
               <li>When time runs out your answers are submitted automatically.</li>
             </ul>

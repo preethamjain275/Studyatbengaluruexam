@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeAll, beforeEach } from "vitest";
 import fs from "fs";
 import path from "path";
 
@@ -126,7 +126,7 @@ describe("Security Test Group B: Server Authorization & Fail-Closed RBAC", () =>
   let assertAdminRole: typeof import("@/lib/admin.functions")["assertAdminRole"];
   let serverMocks: any;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const adminModule = await import("@/lib/admin.functions");
     assertAdminRole = adminModule.assertAdminRole;
     serverMocks = await import("@/integrations/supabase/client.server");

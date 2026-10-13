@@ -2,18 +2,19 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { EXAMS } from "@/lib/exams";
 import { TRACKS } from "@/lib/engine/patterns";
-import { MASTERY_THRESHOLD } from "@/lib/engine/state";
+import { getMasteryThreshold, MASTERY_THRESHOLD } from "@/lib/engine/state";
 import { PageHeader } from "@/components/site/ui";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthRequiredCard } from "@/components/site/AuthRequiredCard";
+import { useState, useEffect } from "react";
 
 export const Route = createFileRoute("/practice")({
   head: () => ({
     meta: [
       { title: "Practice - Study at Bangalore" },
-      { name: "description", content: "Level-by-level mastery practice: Easy, Medium, Hard, Expert with a 90% unlock rule." },
+      { name: "description", content: "Level-by-level mastery practice: Easy, Medium, Hard, Expert with dynamic unlock progression." },
       { property: "og:title", content: "Practice - Study at Bangalore" },
-      { property: "og:description", content: "Level-by-level mastery practice: Easy, Medium, Hard, Expert with a 90% unlock rule." },
+      { property: "og:description", content: "Level-by-level mastery practice: Easy, Medium, Hard, Expert with dynamic unlock progression." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -23,6 +24,11 @@ export const Route = createFileRoute("/practice")({
 
 function PracticePage() {
   const { user, ready } = useAuth();
+  const [threshold, setThreshold] = useState(MASTERY_THRESHOLD);
+
+  useEffect(() => {
+    setThreshold(getMasteryThreshold());
+  }, []);
 
   if (ready && !user) {
     return <AuthRequiredCard title="Before opening this you should sign in." />;
@@ -31,7 +37,7 @@ function PracticePage() {
   return (
     <div>
       <PageHeader eyebrow="Practice" title="Mastery practice by exam">
-        Easy → Medium → Hard → Expert. Score {MASTERY_THRESHOLD}% or more to unlock each next level and earn the mastery certificate.
+        Easy → Medium → Hard → Expert. Score {threshold}% or more to unlock each next level and earn the mastery certificate.
       </PageHeader>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {EXAMS.map((e) => (

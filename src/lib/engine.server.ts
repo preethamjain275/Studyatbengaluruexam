@@ -65,10 +65,16 @@ export async function finalizeAttempt(
     .filter(Boolean) as KeyedQuestion[];
 
   // Fallback to Supabase if any IDs not in local bank
-  if (qs.length === 0 && questionIds.length > 0) {
-    const { data: keys } = await supabaseAdmin.from("questions").select("id, qtype, correct, subject, chapter").in("id", questionIds);
-    qs = (keys ?? []).map((k) => ({ id: k.id, qtype: k.qtype as QType, correct: k.correct as unknown as Correct, subject: k.subject, chapter: k.chapter }));
+  if (qs.length < questionIds.length && questionIds.length > 0) {
+    const missingIds = questionIds.filter((id) => !qs.some((q) => q.id === id));
+    const { data: keys } = await supabaseAdmin.from("questions").select("id, qtype, correct, subject, chapter").in("id", missingIds);
+    if (keys) {
+      const fromDb = keys.map((k) => ({ id: k.id, qtype: k.qtype as QType, correct: k.correct as unknown as Correct, subject: k.subject, chapter: k.chapter }));
+      qs = [...qs, ...fromDb];
+    }
   }
+  const qMap = new Map(qs.map((q) => [q.id, q]));
+  qs = questionIds.map((id) => qMap.get(id)).filter(Boolean) as KeyedQuestion[];
   const preset = att.mode === "mock" ? getPreset(presetId) : undefined;
   const markingFor = (t: QType) => (preset ? preset.marking[t] ?? preset.marking.single ?? PRACTICE_MARKING : PRACTICE_MARKING);
 

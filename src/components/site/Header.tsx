@@ -9,6 +9,7 @@ import { Logo } from "./Logo";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/avatar";
+import { supabase } from "@/integrations/supabase/client";
 
 export const NAV = [
   { to: "/", label: "Home", icon: Home },
@@ -28,7 +29,53 @@ export function Header() {
   const [notif, setNotif] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
+  const [announcements, setAnnouncements] = useState<Array<{
+    id: string;
+    title: string;
+    message: string;
+    link?: string | null;
+    badge?: string | null;
+    created_at?: string | null;
+  }>>([]);
+  const [hasUnread, setHasUnread] = useState(false);
   const { user, profile, logout, isAdmin } = useAuth();
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadNotifications() {
+      try {
+        const { data } = await supabase
+          .from("announcements")
+          .select("id, title, message, link, badge, created_at")
+          .eq("active", true)
+          .order("created_at", { ascending: false })
+          .limit(5);
+
+        if (mounted && data && data.length > 0 && data[0]) {
+          setAnnouncements(data);
+          const lastViewed = localStorage.getItem("study_last_viewed_notification");
+          if (!lastViewed || lastViewed !== data[0].id) {
+            setHasUnread(true);
+          }
+        }
+      } catch {}
+    }
+    loadNotifications();
+    return () => { mounted = false; };
+  }, []);
+
+  const handleOpenNotifications = () => {
+    setNotif((v) => {
+      const next = !v;
+      if (next && announcements.length > 0 && announcements[0]) {
+        setHasUnread(false);
+        try {
+          localStorage.setItem("study_last_viewed_notification", announcements[0].id);
+        } catch {}
+      }
+      return next;
+    });
+  };
 
   const metadata = (user?.user_metadata || {}) as Record<string, any>;
   const avatarUrl = profile?.avatar_url || metadata["avatar_url"] || null;
@@ -55,11 +102,52 @@ export function Header() {
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setSearch(true)} aria-label="Search" className="icon-3d h-9 w-9"><Search className="h-4 w-4" /></button>
             <div className="relative">
-              <button onClick={() => setNotif((v) => !v)} aria-label="Notifications" className="icon-3d h-9 w-9"><Bell className="h-4 w-4" /></button>
+              <button
+                onClick={handleOpenNotifications}
+                aria-label="Notifications"
+                className="icon-3d relative h-9 w-9"
+              >
+                <Bell className="h-4 w-4" />
+                {hasUnread && (
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background animate-pulse" />
+                )}
+              </button>
               {notif && (
-                <div className="surface absolute right-0 top-11 w-72 p-4 animate-in fade-in zoom-in-95">
-                  <p className="text-sm font-semibold">Notifications</p>
-                  <p className="mt-2 text-sm text-muted-foreground">You're all caught up. Exam announcements will appear here.</p>
+                <div className="surface absolute right-0 top-11 w-80 max-h-96 overflow-y-auto rounded-2xl p-4 shadow-xl border animate-in fade-in zoom-in-95 z-50">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b">
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Notifications</p>
+                    {announcements.length > 0 && (
+                      <span className="text-[10px] font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                        {announcements.length} active
+                      </span>
+                    )}
+                  </div>
+                  {announcements.length > 0 ? (
+                    <div className="space-y-3">
+                      {announcements.map((item) => (
+                        <div key={item.id} className="rounded-xl border border-border/50 bg-muted/30 p-2.5 transition-colors hover:bg-muted/60">
+                          {item.badge && (
+                            <span className="inline-block text-[10px] font-semibold text-primary mb-1">
+                              {item.badge}
+                            </span>
+                          )}
+                          <p className="text-xs font-semibold text-foreground line-clamp-1">{item.title}</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">{item.message}</p>
+                          {item.link && (
+                            <Link
+                              to={item.link}
+                              onClick={() => setNotif(false)}
+                              className="mt-2 inline-flex items-center text-[11px] font-semibold text-primary hover:underline"
+                            >
+                              View details →
+                            </Link>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">You're all caught up. Exam announcements will appear here.</p>
+                  )}
                 </div>
               )}
             </div>

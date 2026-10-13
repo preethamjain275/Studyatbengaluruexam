@@ -1,7 +1,8 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { BookOpen, FileClock, Layers, ListChecks, Timer } from "lucide-react";
+import { BookOpen, Layers, ListChecks, Timer, ArrowRight } from "lucide-react";
 import { getExam } from "@/lib/exams";
-import { Card, EmptyState, PageHeader } from "@/components/site/ui";
+import { Card, PageHeader, btnPrimary, btnGhost } from "@/components/site/ui";
+import { presetsFor, TRACKS } from "@/lib/engine/patterns";
 
 export const Route = createFileRoute("/exams/$examId")({
   loader: ({ params }) => {
@@ -28,6 +29,8 @@ export const Route = createFileRoute("/exams/$examId")({
 
 function ExamPage() {
   const { exam } = Route.useLoaderData();
+  const presets = presetsFor(exam.id);
+
   return (
     <div>
       <Link to="/scholarship-exam" className="text-sm font-semibold text-primary">← All exams</Link>
@@ -51,9 +54,49 @@ function ExamPage() {
       </div>
 
       <div className="mt-8 grid gap-4 md:grid-cols-3">
-        <Card title="Practice sets" icon={ListChecks}><EmptyState icon={ListChecks} title="Question bank coming soon">Chapter-wise sets are being prepared.</EmptyState></Card>
-        <Card title="Previous-year style" icon={FileClock}><EmptyState icon={FileClock} title="Coming soon">PYQ-style papers will be added here.</EmptyState></Card>
-        <Card title="Full mock tests" icon={Timer}><EmptyState icon={Timer} title="Coming soon">Timed mocks with real marking.</EmptyState></Card>
+        <Card title="Mastery Practice Sets" icon={ListChecks}>
+          <p className="text-xs text-muted-foreground mb-3">
+            Topic-wise practice across Easy, Medium, and Hard with verified solutions.
+          </p>
+          <p className="text-xs font-semibold text-primary mb-4 truncate">
+            {(TRACKS[exam.id] ?? []).map((t) => t.name).join(" · ")}
+          </p>
+          <Link to="/mastery/$examId" params={{ examId: exam.id }} className={`${btnPrimary} w-full justify-center text-xs`}>
+            Start Practice <ArrowRight className="h-3.5 w-3.5 ml-1" />
+          </Link>
+        </Card>
+
+        <Card title="Timed Mock Tests" icon={Timer}>
+          <p className="text-xs text-muted-foreground mb-3">
+            Real examination patterns with official sectional timing and negative marking.
+          </p>
+          <p className="text-xs font-semibold text-primary mb-4 truncate">
+            {presets.length > 0
+              ? `${presets.length} official pattern simulation${presets.length > 1 ? "s" : ""}`
+              : "Official exam simulations"}
+          </p>
+          {presets.length > 0 && presets[0] ? (
+            <Link to="/mock/$presetId" params={{ presetId: presets[0].id }} className={`${btnPrimary} w-full justify-center text-xs`}>
+              Take Mock Test <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+          ) : (
+            <Link to="/mock-tests" className={`${btnPrimary} w-full justify-center text-xs`}>
+              Browse All Mocks <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+          )}
+        </Card>
+
+        <Card title="Revision & Formula Sheets" icon={BookOpen}>
+          <p className="text-xs text-muted-foreground mb-3">
+            NCERT-aligned handbooks, high-yield formula sheets, and original worked examples.
+          </p>
+          <p className="text-xs font-semibold text-primary mb-4">
+            Classes XI–XII · {exam.subjects.length} Subjects
+          </p>
+          <Link to="/revision" className={`${btnGhost} w-full justify-center text-xs border`}>
+            Open Revision Desk <ArrowRight className="h-3.5 w-3.5 ml-1" />
+          </Link>
+        </Card>
       </div>
     </div>
   );

@@ -26,6 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AuthRequiredCard } from "@/components/site/AuthRequiredCard";
 import { supabase } from "@/integrations/supabase/client";
 import { getInitials, validateAvatarFile, uploadAvatar } from "@/lib/avatar";
+import { getStudentAnalytics, getBookmarks, getLeaderboard } from "@/lib/engine.functions";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -57,13 +58,31 @@ export const Route = createFileRoute("/scholarship-exam")({
   component: Portal,
 });
 
-function Streak() {
-  const days = Array.from({ length: 28 });
+function Streak({
+  last28Days,
+  streak,
+}: {
+  last28Days?: Array<{ date: string; active: boolean; count: number }>;
+  streak?: number;
+}) {
+  const days = last28Days || Array.from({ length: 28 }).map((_, i) => ({ date: String(i), active: false, count: 0 }));
   return (
-    <div className="grid grid-cols-7 gap-1.5">
-      {days.map((_, i) => (
-        <div key={i} className="aspect-square rounded-md bg-muted" />
-      ))}
+    <div className="space-y-2">
+      <div className="grid grid-cols-7 gap-1.5" title="Last 28 days of study activity">
+        {days.map((d, i) => (
+          <div
+            key={i}
+            title={d.active ? `Active on ${d.date}` : `Inactive on ${d.date}`}
+            className={`aspect-square rounded-md transition-all ${
+              d.active ? "bg-emerald-500 shadow-xs" : "bg-muted"
+            }`}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground pt-0.5">
+        <span>28 days ago</span>
+        <span>Today</span>
+      </div>
     </div>
   );
 }
@@ -85,6 +104,11 @@ function Portal() {
     meta["target_exam"] || (meta["target_exams"]?.[0] ?? "KCET")
   );
 
+  // Data-driven student statistics
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [bookmarksCount, setBookmarksCount] = useState<number>(0);
+  const [leaderboard, setLeaderboard] = useState<any>(null);
+
   // Avatar upload & fallback states
   const [imgError, setImgError] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -94,6 +118,19 @@ function Portal() {
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [editingName, setEditingName] = useState("");
   const [savingName, setSavingName] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      getStudentAnalytics({ data: { examId: "all" } }).catch(() => null),
+      getBookmarks().catch(() => ({ bookmarks: [] })),
+      getLeaderboard({ data: { examId: "scholarship", limit: 3, userId: user.id } }).catch(() => null),
+    ]).then(([analyticsRes, bookmarksRes, leaderboardRes]) => {
+      if (analyticsRes) setAnalytics(analyticsRes);
+      if (bookmarksRes?.bookmarks) setBookmarksCount(bookmarksRes.bookmarks.length);
+      if (leaderboardRes) setLeaderboard(leaderboardRes);
+    });
+  }, [user]);
 
   // Fetch and synchronize canonical profile on mount or user session change
   useEffect(() => {
@@ -116,27 +153,6 @@ function Portal() {
     if (userMeta["standard"]) setStandard(userMeta["standard"]);
     if (userMeta["target_exam"]) setTargetExam(userMeta["target_exam"]);
     else if (userMeta["target_exams"]?.[0]) setTargetExam(userMeta["target_exams"][0]);
-
-    // Check local student registry if available (for offline/local registered users)
-    try {
-      const raw = localStorage.getItem("study_registered_students");
-      if (raw) {
-        const list = JSON.parse(raw);
-        const match = list.find(
-          (s: any) =>
-            (s.email && user.email && s.email.toLowerCase() === user.email.toLowerCase()) ||
-            s.id === user.id
-        );
-        if (match) {
-          if (match.name && match.name.trim()) setStudentName(match.name.trim());
-          if (match.avatar_url) {
-            setAvatarUrl(match.avatar_url);
-            setImgError(false);
-          }
-          if (match.standard) setStandard(match.standard);
-        }
-      }
-    } catch {}
 
     // Query canonical database profile from Supabase
     async function fetchCanonicalProfile() {
@@ -375,25 +391,88 @@ function Portal() {
         </Card>
 
         <Card title="Continue learning" icon={PlayCircle} className="lg:col-span-2">
-          <EmptyState
-            icon={NotebookPen}
-            title="No active sessions"
-            action={
-              <Link to="/practice" className={btnPrimary}>
-                Start practice
+          {analytics?.activeSession ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-2">
+              <div className="space-y-1">
+                <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                  In-Progress Session
+                </span>
+                <p className="text-base font-bold text-foreground">
+                  {analytics.activeSession.examId.toUpperCase()} · {analytics.activeSession.track || "Practice"} ({analytics.activeSession.level ? analytics.activeSession.level.toUpperCase() : "EASY"})
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Your answers and time are saved in real-time. Pick up right where you left off.
+                </p>
+              </div>
+              <Link
+                to="/test/$attemptId"
+                params={{ attemptId: analytics.activeSession.id }}
+                className={`${btnPrimary} shrink-0`}
+              >
+                Resume Test <ArrowRight className="h-4 w-4 ml-1" />
               </Link>
-            }
-          >
-            Pick an exam and chapter to begin. Your practice sessions will save automatically.
-          </EmptyState>
+            </div>
+          ) : analytics?.trends && analytics.trends.length > 0 ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-2">
+              <div className="space-y-1">
+                <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">
+                  Last Completed Assessment
+                </span>
+                <p className="text-base font-bold text-foreground">
+                  {analytics.trends[analytics.trends.length - 1].examId.toUpperCase()} ({analytics.trends[analytics.trends.length - 1].percent}% Score)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ready for your next topic? Advance your mastery level or attempt a full mock test.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/results/$attemptId"
+                  params={{ attemptId: analytics.trends[analytics.trends.length - 1].id }}
+                  className={btnGhost}
+                >
+                  Review Result
+                </Link>
+                <Link to="/practice" className={btnPrimary}>
+                  Start Practice <ArrowRight className="h-4 w-4 ml-1" />
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              icon={NotebookPen}
+              title="No active sessions"
+              action={
+                <Link to="/practice" className={btnPrimary}>
+                  Start practice
+                </Link>
+              }
+            >
+              Pick an exam and chapter to begin. Your practice sessions will save automatically.
+            </EmptyState>
+          )}
         </Card>
 
-        <Card title="Current difficulty level" icon={Gauge}>
-          <p className="text-3xl font-bold text-brand">Easy</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Score 90%+ on practice sets to unlock Medium & Hard levels.
-          </p>
-        </Card>
+        {(() => {
+          const levelUnlocked =
+            (analytics?.bestScore ?? 0) >= 90
+              ? "Expert"
+              : (analytics?.bestScore ?? 0) >= 80
+              ? "Hard"
+              : (analytics?.bestScore ?? 0) >= 60
+              ? "Medium"
+              : "Easy";
+          return (
+            <Card title="Current difficulty level" icon={Gauge}>
+              <p className="text-3xl font-bold text-brand">{levelUnlocked}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {levelUnlocked === "Expert"
+                  ? "You have reached the highest mastery level!"
+                  : "Score 80%+ on practice sets to unlock next level."}
+              </p>
+            </Card>
+          );
+        })()}
 
         <Card title="Daily practice" icon={Zap}>
           <p className="text-sm text-muted-foreground">
@@ -405,62 +484,340 @@ function Portal() {
         </Card>
 
         <Card title="Study streak" icon={Flame}>
-          <Streak />
+          <Streak last28Days={analytics?.last28Days} streak={analytics?.streak} />
           <p className="mt-3 text-sm text-muted-foreground">
-            0-day streak. Practise today to start one.
+            {analytics?.streak
+              ? `${analytics.streak}-day streak! Keep up the daily practice 🔥`
+              : "0-day streak. Practise today to start one."}
           </p>
         </Card>
 
         <Card title="Recent scores" icon={BarChart3}>
-          <EmptyState icon={BarChart3} title="No test attempts yet">
-            Complete a practice set or mock test to view scores.
-          </EmptyState>
+          {analytics?.trends && analytics.trends.length > 0 ? (
+            <div className="space-y-2.5">
+              {analytics.trends.slice(-3).reverse().map((t: any) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between text-xs p-2.5 rounded-xl border bg-muted/30"
+                >
+                  <div>
+                    <span className="font-bold uppercase text-foreground">{t.examId}</span>
+                    <span className="text-[10px] text-muted-foreground ml-1.5 capitalize">
+                      ({t.mode})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-primary">{t.percent}%</span>
+                    <Link
+                      to="/results/$attemptId"
+                      params={{ attemptId: t.id }}
+                      className="text-primary hover:underline font-semibold text-[11px]"
+                    >
+                      Review
+                    </Link>
+                  </div>
+                </div>
+              ))}
+              <Link
+                to="/performance"
+                className="block text-center text-xs font-semibold text-primary pt-1 hover:underline"
+              >
+                View all test performance →
+              </Link>
+            </div>
+          ) : (
+            <EmptyState icon={BarChart3} title="No test attempts yet">
+              Complete a practice set or mock test to view scores.
+            </EmptyState>
+          )}
         </Card>
 
         <Card title="Subject-wise progress" icon={CalendarDays}>
-          <EmptyState icon={CalendarDays} title="No progress yet">
-            Subject stats update as you solve questions.
-          </EmptyState>
+          {analytics?.bySubject && analytics.bySubject.length > 0 ? (
+            <div className="space-y-3">
+              {analytics.bySubject.slice(0, 4).map((s: any) => (
+                <div key={s.subject} className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-foreground">{s.subject}</span>
+                    <span className="text-primary">{s.accuracy}%</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        s.accuracy >= 80 ? "bg-emerald-500" : "bg-primary"
+                      }`}
+                      style={{ width: `${s.accuracy}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+              <Link
+                to="/performance"
+                className="block text-center text-xs font-semibold text-primary pt-1 hover:underline"
+              >
+                View full subject breakdown →
+              </Link>
+            </div>
+          ) : (
+            <EmptyState icon={CalendarDays} title="No progress yet">
+              Subject stats update as you solve questions.
+            </EmptyState>
+          )}
         </Card>
 
         <Card title="Weak chapters" icon={TrendingDown}>
-          <EmptyState icon={TrendingDown} title="Nothing flagged">
-            We'll highlight chapters where accuracy drops below 60%.
-          </EmptyState>
+          {analytics?.weakChapters && analytics.weakChapters.length > 0 ? (
+            <div className="space-y-2">
+              {analytics.weakChapters.slice(0, 3).map((wc: any) => (
+                <div
+                  key={`${wc.subject}-${wc.chapter}`}
+                  className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20"
+                >
+                  <span className="font-semibold text-foreground truncate max-w-[150px]">
+                    {wc.chapter}
+                  </span>
+                  <span className="font-bold text-amber-600 dark:text-amber-400">
+                    {wc.accuracy}%
+                  </span>
+                </div>
+              ))}
+              <Link
+                to="/practice"
+                className="block text-center text-xs font-semibold text-primary pt-1 hover:underline"
+              >
+                Practice weak chapters →
+              </Link>
+            </div>
+          ) : (
+            <EmptyState icon={TrendingDown} title="Nothing flagged">
+              {analytics?.totalAttempts
+                ? "All chapters have accuracy above 60%!"
+                : "We'll highlight chapters where accuracy drops below 60%."}
+            </EmptyState>
+          )}
         </Card>
 
         <Card title="Bookmarked questions" icon={Bookmark}>
-          <EmptyState
-            icon={Bookmark}
-            title="No bookmarks"
-            action={
-              <Link to="/bookmarks" className="text-sm font-semibold text-primary">
-                View bookmarks →
+          {bookmarksCount > 0 ? (
+            <div className="space-y-2">
+              <p className="text-2xl font-bold text-foreground">{bookmarksCount} saved</p>
+              <p className="text-xs text-muted-foreground">
+                Questions saved to your account for revision across devices.
+              </p>
+              <Link
+                to="/bookmarks"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline pt-1"
+              >
+                Review bookmarks →
               </Link>
-            }
-          />
+            </div>
+          ) : (
+            <EmptyState
+              icon={Bookmark}
+              title="No bookmarks"
+              action={
+                <Link to="/bookmarks" className="text-sm font-semibold text-primary">
+                  View bookmarks →
+                </Link>
+              }
+            />
+          )}
         </Card>
 
-        <Card title="Certificates earned" icon={Award}>
-          <EmptyState icon={Award} title="No certificates yet">
-            Clear the Expert level on any exam path to earn a certificate.
-          </EmptyState>
+        <Card title="Scholarship Standing & Certificates" icon={Award}>
+          {(analytics?.bestScore ?? 0) >= 90 ? (
+            <div className="space-y-2 p-1">
+              <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">
+                ★ Expert Level Cleared · Scholarship Finalist
+              </span>
+              <p className="text-sm font-bold text-foreground">
+                Provisional Scholarship Certificate Unlocked
+              </p>
+              <p className="text-xs text-muted-foreground">
+                You scored {analytics.bestScore}% (Peak Score). You have achieved the qualifying threshold for merit scholarship consideration.
+              </p>
+            </div>
+          ) : (analytics?.bestScore ?? 0) >= 80 ? (
+            <div className="space-y-2 p-1">
+              <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                ✓ Merit Benchmark Met (80%+)
+              </span>
+              <p className="text-sm font-bold text-foreground">
+                Scholarship Evaluation Candidate
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Current peak score: {analytics.bestScore}%. Advance to 90%+ on full mock sets to unlock the certificate.
+              </p>
+            </div>
+          ) : (
+            <EmptyState icon={Award} title="No certificates yet">
+              {analytics?.totalAttempts
+                ? `Current peak score: ${analytics.bestScore}%. Score 80%+ on mock exams to qualify for scholarship review.`
+                : "Complete your first timed mock exam to qualify for the scholarship review pool."}
+            </EmptyState>
+          )}
         </Card>
 
         <Card title="Global leaderboard" icon={Trophy} className="lg:col-span-2">
-          <EmptyState
-            icon={Trophy}
-            title="Leaderboard opens with the first exam window"
-            action={
-              <Link to="/leaderboard" className="text-sm font-semibold text-primary">
-                Open leaderboard →
+          {leaderboard?.entries && leaderboard.entries.length > 0 ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {leaderboard.entries.slice(0, 3).map((en: any) => (
+                  <div
+                    key={en.userId}
+                    className="p-3 rounded-xl border bg-muted/20 text-center space-y-1"
+                  >
+                    <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      #{en.rank}
+                    </span>
+                    <p className="text-xs font-bold truncate text-foreground">{en.displayName}</p>
+                    <p className="text-sm font-extrabold text-primary">{en.percentage}%</p>
+                  </div>
+                ))}
+              </div>
+              {leaderboard.currentUserRank && (
+                <p className="text-xs text-muted-foreground">
+                  Your current scholarship rank:{" "}
+                  <b className="text-primary">#{leaderboard.currentUserRank.rank}</b> of{" "}
+                  {leaderboard.totalParticipants} students.
+                </p>
+              )}
+              <Link
+                to="/leaderboard"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+              >
+                Open full leaderboard →
               </Link>
-            }
-          />
+            </div>
+          ) : (
+            <EmptyState
+              icon={Trophy}
+              title="Leaderboard opens with the first exam window"
+              action={
+                <Link to="/leaderboard" className="text-sm font-semibold text-primary">
+                  Open leaderboard →
+                </Link>
+              }
+            />
+          )}
         </Card>
       </div>
 
-      <h2 className="mb-5 mt-12 text-2xl font-bold">Exam categories</h2>
+      {/* SCHOLARSHIP OPPORTUNITIES & ELIGIBILITY MATRIX */}
+      <div className="space-y-4 pt-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-b pb-3">
+          <div>
+            <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+              <Award className="h-5 w-5 text-primary" /> Scholarship Opportunities & Eligibility
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Verified merit scholarships, fee waivers, and study grants determined by your real test scores.
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-primary self-start sm:self-auto">
+            3 Active Programs
+          </span>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* Program 1 */}
+          <div className="surface p-5 rounded-2xl border space-y-3 shadow-xs flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                  100% Fee Support
+                </span>
+                <span className="text-[11px] text-muted-foreground">Deadline: 30 Apr 2026</span>
+              </div>
+              <h3 className="font-bold text-sm text-foreground">Study at Bangalore Merit Scholarship</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Covers complete coaching and tuition fees. Requires a score of 85%+ on any official entrance mock test.
+              </p>
+              <div className="rounded-xl bg-muted/40 p-2.5 text-xs space-y-1">
+                <p className="text-[11px] text-muted-foreground">Your Status:</p>
+                <p className="font-bold">
+                  {(analytics?.bestScore ?? 0) >= 85 ? (
+                    <span className="text-emerald-600 font-bold">✓ Qualified (Provisional) — {analytics.bestScore}%</span>
+                  ) : (analytics?.bestScore ?? 0) >= 70 ? (
+                    <span className="text-amber-600 font-bold">In Evaluation — {analytics.bestScore}% (Needs 85%)</span>
+                  ) : analytics?.totalAttempts > 0 ? (
+                    <span className="text-muted-foreground font-semibold">In Progress — Peak: {analytics.bestScore}%</span>
+                  ) : (
+                    <span className="text-muted-foreground">Pending qualifying exam attempt</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <Link to="/mock-tests" className={`${btnPrimary} w-full justify-center text-xs mt-2`}>
+              Take Qualifying Mock <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+          </div>
+
+          {/* Program 2 */}
+          <div className="surface p-5 rounded-2xl border space-y-3 shadow-xs flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">
+                  ₹25,000 Study Grant
+                </span>
+                <span className="text-[11px] text-muted-foreground">Deadline: 15 May 2026</span>
+              </div>
+              <h3 className="font-bold text-sm text-foreground">Karnataka STEM Talent Grant</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Annual books and laboratory grant. Requires achieving 80%+ accuracy on Physics, Chemistry, Math, or Biology sets.
+              </p>
+              <div className="rounded-xl bg-muted/40 p-2.5 text-xs space-y-1">
+                <p className="text-[11px] text-muted-foreground">Your Status:</p>
+                <p className="font-bold">
+                  {analytics?.bySubject && analytics.bySubject.some((s: any) => s.accuracy >= 80) ? (
+                    <span className="text-emerald-600 font-bold">✓ Benchmark Met in STEM</span>
+                  ) : analytics?.bySubject && analytics.bySubject.length > 0 ? (
+                    <span className="text-amber-600 font-bold">Target 80%+ accuracy in any STEM subject</span>
+                  ) : (
+                    <span className="text-muted-foreground">No STEM practice recorded yet</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <Link to="/practice" className={`${btnGhost} w-full justify-center text-xs mt-2`}>
+              Practice STEM Tracks <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+          </div>
+
+          {/* Program 3 */}
+          <div className="surface p-5 rounded-2xl border space-y-3 shadow-xs flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand/10 text-brand">
+                  Mentorship Access
+                </span>
+                <span className="text-[11px] text-muted-foreground">Rolling Intake</span>
+              </div>
+              <h3 className="font-bold text-sm text-foreground">Foundation Aptitude Assistance</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Free 1-on-1 expert mentor consultations. Requires completing at least 5 practice sets with 60%+ overall accuracy.
+              </p>
+              <div className="rounded-xl bg-muted/40 p-2.5 text-xs space-y-1">
+                <p className="text-[11px] text-muted-foreground">Your Status:</p>
+                <p className="font-bold">
+                  {(analytics?.totalAttempts ?? 0) >= 5 && (analytics?.overallAccuracy ?? 0) >= 60 ? (
+                    <span className="text-emerald-600 font-bold">✓ Criteria Met ({analytics.totalAttempts}/5 tests, {analytics.overallAccuracy}% acc)</span>
+                  ) : (
+                    <span className="text-muted-foreground font-semibold">
+                      {analytics?.totalAttempts ?? 0}/5 tests completed · {analytics?.overallAccuracy ?? 0}% acc
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <Link to="/practice" className={`${btnGhost} w-full justify-center text-xs mt-2`}>
+              Complete Practice Sets <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <h2 className="mb-5 mt-10 text-2xl font-bold">Exam categories</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {EXAMS.map((e) => (
           <ExamCard key={e.id} exam={e} />

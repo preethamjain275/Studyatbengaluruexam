@@ -50,6 +50,7 @@ import {
   ADMIN_ROLES,
   type QuestionInput,
 } from "@/lib/admin.functions";
+import { getMasterySettings, updateMasterySettings } from "@/lib/engine.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -653,75 +654,14 @@ function StudentsView() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let localList: any[] = [];
-    try {
-      const raw = localStorage.getItem("study_registered_students");
-      if (raw) localList = JSON.parse(raw);
-    } catch {}
-
     getStudents()
       .then((res) => {
         const serverStudents = (res as any)?.students || [];
-        const mergedMap = new Map();
-        for (const s of [...localList, ...serverStudents]) {
-          const key = (s.email || s.id || "").toLowerCase();
-          if (key && !mergedMap.has(key)) {
-            mergedMap.set(key, s);
-          }
-        }
-        let list = Array.from(mergedMap.values());
-        if (list.length === 0) {
-          list = [
-            {
-              id: "std-01",
-              name: "Preetham Jain",
-              display_name: "Preetham Jain",
-              email: "preethamjainm6324@gmail.com",
-              phone: "+91 94801 23456",
-              standard: "12th Standard",
-              stream: "PCMB",
-              target_exams: ["KCET", "Scholarship Exam", "NEET-UG"],
-              created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-            },
-            {
-              id: "std-02",
-              name: "Ananya Rao",
-              display_name: "Ananya Rao",
-              email: "ananya.rao2026@gmail.com",
-              phone: "+91 98450 11223",
-              standard: "12th Standard",
-              stream: "PCMB",
-              target_exams: ["KCET", "Scholarship Exam"],
-              created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-            },
-            {
-              id: "std-03",
-              name: "Rohan Kumar",
-              display_name: "Rohan Kumar",
-              email: "rohan.k@gmail.com",
-              phone: "+91 99001 44556",
-              standard: "11th Standard",
-              stream: "PCM",
-              target_exams: ["JEE Main", "KCET"],
-              created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-            },
-            {
-              id: "std-04",
-              name: "Sahana Murthy",
-              display_name: "Sahana Murthy",
-              email: "sahana.m@gmail.com",
-              phone: "+91 97412 88990",
-              standard: "12th Standard",
-              stream: "PCMB",
-              target_exams: ["NEET-UG", "Scholarship Exam"],
-              created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
-            },
-          ];
-        }
-        setStudents(list);
+        setStudents(serverStudents);
       })
-      .catch(() => {
-        if (localList.length > 0) setStudents(localList);
+      .catch((err) => {
+        console.error("Failed to load registered students:", err);
+        setStudents([]);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -1454,6 +1394,8 @@ function Predictor() {
 /* 7. MASTERY TARGET SETTINGS (EDITABLE 80% THRESHOLD) */
 function MasterySettingsView() {
   const [threshold, setThreshold] = useState(80);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
@@ -1464,25 +1406,36 @@ function MasterySettingsView() {
         if (!isNaN(val)) setThreshold(val);
       }
     }
+
+    getMasterySettings()
+      .then((res) => {
+        if (res?.threshold && typeof res.threshold === "number") {
+          setThreshold(res.threshold);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("study_mastery_threshold", String(res.threshold));
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   async function handleSave() {
+    setSaving(true);
     if (typeof window !== "undefined") {
       localStorage.setItem("study_mastery_threshold", String(threshold));
     }
-    // Also sync to Supabase app_settings
-    try {
-      const { supabase } = await import("@/integrations/supabase/client");
-      await supabase.from("app_settings").upsert({
-        key: "mastery_threshold",
-        value: { threshold, updated_by: "admin" },
-        updated_at: new Date().toISOString(),
-      });
-    } catch {}
 
-    setSavedSuccess(true);
-    toast.success(`Mastery unlock target successfully set to ${threshold}%!`);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    try {
+      await updateMasterySettings({ data: { threshold } });
+      setSavedSuccess(true);
+      toast.success(`Mastery unlock target successfully saved to database: ${threshold}%!`);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save mastery threshold to database.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -1496,7 +1449,7 @@ function MasterySettingsView() {
             Mastery Unlock Targets & Progression Rules
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Configure the required score percentage to advance between difficulty levels (Easy → Medium → Hard → Expert).
+            Configure the database-backed score percentage required to advance between difficulty levels (Easy → Medium → Hard → Expert).
           </p>
         </div>
       </div>
@@ -1506,14 +1459,14 @@ function MasterySettingsView() {
           <Sliders className="h-4 w-4" /> Admin Policy Guide:
         </p>
         <p className="text-muted-foreground leading-relaxed">
-          When you set the target to <b>{threshold}%</b>, students who achieve <b>{threshold}% or higher</b> on Easy practice sets will automatically unlock Medium practice sets. Similarly, scoring {threshold}% on Medium unlocks Hard questions.
+          When you set the target to <b>{threshold}%</b>, students who achieve <b>{threshold}% or higher</b> on Easy practice sets will automatically unlock Medium practice sets. Similarly, scoring {threshold}% on Medium unlocks Hard questions. All changes are stored in the authoritative database configuration table.
         </p>
       </div>
 
       <div className="max-w-md space-y-4">
         <div>
           <label className="block text-xs font-semibold text-foreground mb-1">
-            Unlock Target Percentage (Current: <span className="text-primary font-bold">{threshold}%</span>)
+            Unlock Target Percentage (Authoritative: <span className="text-primary font-bold">{threshold}%</span>)
           </label>
           <div className="flex items-center gap-3">
             <input
@@ -1521,6 +1474,7 @@ function MasterySettingsView() {
               min={50}
               max={100}
               value={threshold}
+              disabled={loading || saving}
               onChange={(e) => setThreshold(Math.max(50, Math.min(100, Number(e.target.value))))}
               className={`${inp} w-32 font-bold text-base text-center`}
             />
@@ -1536,6 +1490,7 @@ function MasterySettingsView() {
               <button
                 key={val}
                 type="button"
+                disabled={loading || saving}
                 onClick={() => setThreshold(val)}
                 className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
                   threshold === val
@@ -1552,9 +1507,10 @@ function MasterySettingsView() {
         <div className="pt-2">
           <button
             onClick={handleSave}
-            className={`${btn} bg-primary text-primary-foreground px-6 py-2.5 font-bold shadow-md`}
+            disabled={saving || loading}
+            className={`${btn} bg-primary text-primary-foreground px-6 py-2.5 font-bold shadow-md disabled:opacity-50`}
           >
-            {savedSuccess ? "Saved Successfully! ✓" : "Save & Update Unlock Target"}
+            {saving ? "Saving to Database…" : savedSuccess ? "Saved to Database! ✓" : "Save & Update Unlock Target"}
           </button>
         </div>
       </div>

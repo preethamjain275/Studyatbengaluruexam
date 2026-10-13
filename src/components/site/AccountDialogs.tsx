@@ -43,13 +43,7 @@ export function ChangePasswordDialog({
       // 1. Attempt Supabase Auth update
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) {
-        // If local session, update locally stored password
-        const raw = localStorage.getItem("study_user_session");
-        if (raw) {
-          const user = JSON.parse(raw);
-          user.password = newPassword;
-          localStorage.setItem("study_user_session", JSON.stringify(user));
-        }
+        throw new Error(error.message || "Failed to update password.");
       }
       toast.success("Password updated successfully!");
       setNewPassword("");

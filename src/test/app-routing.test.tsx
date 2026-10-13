@@ -14,4 +14,46 @@ describe("App routing", () => {
 
     expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
   });
+
+  it("matches a dedicated page for /auth instead of falling back to not found", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes("/auth");
+
+    expect(matches.at(-1)?.routeId).toBe("/auth");
+  });
+
+  it("matches student login route which redirects to /auth", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes("/student/login");
+
+    expect(matches.at(-1)?.routeId).toBe("/student/login");
+  });
+
+  it("matches all core student journey routes without falling back to not found", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+    const coreRoutes = [
+      "/performance",
+      "/bookmarks",
+      "/leaderboard",
+      "/scholarship-exam",
+      "/practice",
+      "/mock-tests",
+      "/profile",
+      "/revision",
+    ];
+
+    for (const route of coreRoutes) {
+      const matches = router.matchRoutes(route);
+      expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
+      expect(matches.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("matches operational health route /api/health", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+    const matches = router.matchRoutes("/api/health");
+    expect(matches.at(-1)?.routeId).toBe("/api/health");
+  });
 });
