@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   Bell, Bookmark, GraduationCap, Home, LineChart, Menu, NotebookPen, RotateCcw, Search, Timer, Trophy, User, X, ShieldCheck,
@@ -12,14 +12,14 @@ import { getInitials } from "@/lib/avatar";
 import { supabase } from "@/integrations/supabase/client";
 
 export const NAV = [
-  { to: "/", label: "Home", icon: Home },
-  { to: "/scholarship-exam", label: "Scholarship Exam", icon: GraduationCap },
-  { to: "/practice", label: "Practice", icon: NotebookPen },
-  { to: "/mock-tests", label: "Mock Tests", icon: Timer },
-  { to: "/revision", label: "Revision", icon: RotateCcw },
-  { to: "/performance", label: "Performance", icon: LineChart },
-  { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
-  { to: "/bookmarks", label: "Bookmarks", icon: Bookmark },
+  { to: "/", label: "Home", icon: Home, anchor: "#home" },
+  { to: "/scholarship-exam", label: "Scholarship Exam", icon: GraduationCap, anchor: "#scholarship-exam" },
+  { to: "/practice", label: "Practice", icon: NotebookPen, anchor: "#practice" },
+  { to: "/mock-tests", label: "Mock Tests", icon: Timer, anchor: "#mock-tests" },
+  { to: "/revision", label: "Revision", icon: RotateCcw, anchor: "#revision" },
+  { to: "/performance", label: "Performance", icon: LineChart, anchor: "#performance" },
+  { to: "/leaderboard", label: "Leaderboard", icon: Trophy, anchor: "#leaderboard" },
+  { to: "/bookmarks", label: "Bookmarks", icon: Bookmark, anchor: "#bookmarks" },
 ] as const;
 
 const BOTTOM = ["/", "/scholarship-exam", "/practice", "/mock-tests"];
@@ -39,6 +39,8 @@ export function Header() {
   }>>([]);
   const [hasUnread, setHasUnread] = useState(false);
   const { user, profile, logout, isAdmin } = useAuth();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isLandingPage = pathname === "/";
 
   useEffect(() => {
     let mounted = true;
@@ -88,16 +90,26 @@ export function Header() {
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4">
           <Link to="/" className="shrink-0"><Logo /></Link>
           <nav className="hidden flex-1 items-center gap-1 overflow-x-auto xl:flex">
-            {NAV.map((n) => (
-              <Link
-                key={n.to}
-                to={n.to}
-                activeOptions={{ exact: n.to === "/" }}
-                className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-accent-foreground data-[status=active]:bg-accent data-[status=active]:text-primary"
-              >
-                {n.label}
-              </Link>
-            ))}
+            {NAV.map((n) =>
+              isLandingPage ? (
+                <a
+                  key={n.anchor}
+                  href={n.anchor}
+                  className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+                >
+                  {n.label}
+                </a>
+              ) : (
+                <Link
+                  key={n.to}
+                  to={n.to}
+                  activeOptions={{ exact: n.to === "/" }}
+                  className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-accent-foreground data-[status=active]:bg-accent data-[status=active]:text-primary"
+                >
+                  {n.label}
+                </Link>
+              )
+            )}
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setSearch(true)} aria-label="Search" className="icon-3d h-9 w-9"><Search className="h-4 w-4" /></button>
@@ -265,12 +277,23 @@ export function Header() {
               <Logo />
               <button onClick={() => setDrawer(false)} aria-label="Close menu" className="icon-3d h-9 w-9"><X className="h-4 w-4" /></button>
             </div>
-            {NAV.map((n) => (
-              <Link key={n.to} to={n.to} onClick={() => setDrawer(false)} activeOptions={{ exact: n.to === "/" }}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent data-[status=active]:bg-accent data-[status=active]:text-primary">
-                <n.icon className="h-4 w-4" />{n.label}
-              </Link>
-            ))}
+            {NAV.map((n) =>
+              isLandingPage ? (
+                <a
+                  key={n.anchor}
+                  href={n.anchor}
+                  onClick={() => setDrawer(false)}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent"
+                >
+                  <n.icon className="h-4 w-4" />{n.label}
+                </a>
+              ) : (
+                <Link key={n.to} to={n.to} onClick={() => setDrawer(false)} activeOptions={{ exact: n.to === "/" }}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent data-[status=active]:bg-accent data-[status=active]:text-primary">
+                  <n.icon className="h-4 w-4" />{n.label}
+                </Link>
+              )
+            )}
             <div className="mt-4 border-t pt-4 space-y-2">
               {isAdmin && (
                 <Link

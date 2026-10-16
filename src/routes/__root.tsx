@@ -18,6 +18,7 @@ import { TutorWidget } from "@/components/site/Tutor";
 import { Logo } from "@/components/site/Logo";
 import { themeScript } from "@/components/site/theme";
 import { AnnouncementPopup } from "@/components/site/AnnouncementPopup";
+import { LandingFooter } from "@/components/site/LandingFooter";
 
 function NotFoundComponent() {
   return (
@@ -108,25 +109,31 @@ function RootComponent() {
     );
   }
 
+  const isLandingPage = pathname === "/";
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Header />
-        <main className="mx-auto min-h-[70vh] max-w-7xl px-4 py-8 pb-28 xl:pb-12">
+        <main className={`mx-auto min-h-[70vh] max-w-7xl px-4 py-8 ${isLandingPage ? "pb-12" : "pb-28 xl:pb-12"}`}>
           <Outlet />
         </main>
         <TutorWidget />
         <AnnouncementPopup />
-        <footer className="border-t pb-28 xl:pb-0">
-          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 text-sm text-muted-foreground md:flex-row">
-            <Logo />
-            <div className="flex flex-wrap items-center gap-6">
-              <Link to="/privacy" className="hover:underline">Privacy Policy</Link>
-              <Link to="/terms" className="hover:underline">Terms & Conditions</Link>
+        {isLandingPage ? (
+          <LandingFooter />
+        ) : (
+          <footer className="border-t pb-28 xl:pb-0">
+            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 text-sm text-muted-foreground md:flex-row">
+              <Logo />
+              <div className="flex flex-wrap items-center gap-6">
+                <Link to="/privacy" className="hover:underline">Privacy Policy</Link>
+                <Link to="/terms" className="hover:underline">Terms & Conditions</Link>
+              </div>
+              <p>© {new Date().getFullYear()} Study at Bangalore. All rights reserved.</p>
             </div>
-            <p>© {new Date().getFullYear()} Study at Bangalore. All rights reserved.</p>
-          </div>
-        </footer>
+          </footer>
+        )}
       </AuthProvider>
     </QueryClientProvider>
   );
